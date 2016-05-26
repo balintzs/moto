@@ -11,6 +11,7 @@ install_requires = [
     "xmltodict",
     "six",
     "werkzeug",
+    "pytz==2015.7",
 ]
 
 extras_require = {
