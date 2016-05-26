@@ -82,9 +82,26 @@ class EC2ContainerServiceResponse(BaseResponse):
         service_name = self._get_param('serviceName')
         task_definition_str = self._get_param('taskDefinition')
         desired_count = self._get_int_param('desiredCount')
-        service = self.ecs_backend.create_service(cluster_str, service_name, task_definition_str, desired_count)
+        role = self._get_param('role')
+        loadBalancers = self._get_param('loadBalancers')
+        service = self.ecs_backend.create_service(cluster_str, service_name, task_definition_str, desired_count, role, loadBalancers)
         return json.dumps({
             'service': service.response_object
+        })
+
+    def describe_task_definition(self):
+        task_definition_name = self._get_param('taskDefinition')
+        taskDefinition = self.ecs_backend.describe_task_definition(task_definition_name)
+        return json.dumps({
+            "taskDefinition": taskDefinition.response_object
+        })
+
+    def describe_services(self):
+        cluster_name = self._get_param('cluster')
+        service_names = self._get_param('services')
+        services = self.ecs_backend.describe_services(cluster_name, service_names)
+        return json.dumps({
+            "services": services
         })
 
     def list_services(self):

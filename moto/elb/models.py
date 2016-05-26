@@ -60,6 +60,7 @@ class FakeLoadBalancer(object):
         self.zones = zones
         self.listeners = []
         self.backends = []
+        self.security_groups = []
         self.scheme = scheme
         self.attributes = FakeLoadBalancer.get_default_attributes()
         self.policies = Policies()
@@ -272,6 +273,12 @@ class ELBBackend(BaseBackend):
                     balancer.listeners[idx].ssl_certificate_id = ssl_certificate_id
 
         return balancer
+
+    def apply_security_groups_to_load_balancer(self, name, security_groups):
+        balancer = self.load_balancers.get(name, None)
+        if balancer:
+            balancer.security_groups = security_groups
+        return security_groups
 
     def register_instances(self, load_balancer_name, instance_ids):
         load_balancer = self.get_load_balancer(load_balancer_name)

@@ -21,6 +21,16 @@ class ELBResponse(BaseResponse):
     def elb_backend(self):
         return elb_backends[self.region]
 
+    def apply_security_groups_to_load_balancer(self):
+        LoadBalancerName = self._get_param('LoadBalancerName'),
+        SecurityGroups = self._get_multi_param("SecurityGroups.member")
+        self.elb_backend.apply_security_groups_to_load_balancer(
+            name=LoadBalancerName,
+            security_groups=SecurityGroups
+        )
+        template = self.response_template(APPLY_SECURITY_GROUPS_TEMPLATE)
+        return template.render(security_groups=SecurityGroups)
+
     def create_load_balancer(self):
         load_balancer_name = self._get_param('LoadBalancerName')
         availability_zones = self._get_multi_param("AvailabilityZones.member")
@@ -118,13 +128,13 @@ class ELBResponse(BaseResponse):
         cross_zone = self._get_dict_param("LoadBalancerAttributes.CrossZoneLoadBalancing.")
         if cross_zone:
             attribute = CrossZoneLoadBalancingAttribute()
-            attribute.enabled = cross_zone["enabled"] == "true"
+            attribute.enabled = cross_zone["enabled"]
             self.elb_backend.set_cross_zone_load_balancing_attribute(load_balancer_name, attribute)
 
         access_log = self._get_dict_param("LoadBalancerAttributes.AccessLog.")
         if access_log:
             attribute = AccessLogAttribute()
-            attribute.enabled = access_log["enabled"] == "true"
+            attribute.enabled = access_log["enabled"]
             attribute.s3_bucket_name = access_log['s3_bucket_name']
             attribute.s3_bucket_prefix = access_log['s3_bucket_prefix']
             attribute.emit_interval = access_log["emit_interval"]
@@ -133,7 +143,7 @@ class ELBResponse(BaseResponse):
         connection_draining = self._get_dict_param("LoadBalancerAttributes.ConnectionDraining.")
         if connection_draining:
             attribute = ConnectionDrainingAttribute()
-            attribute.enabled = connection_draining["enabled"] == "true"
+            attribute.enabled = connection_draining["enabled"]
             attribute.timeout = connection_draining["timeout"]
             self.elb_backend.set_connection_draining_attribute(load_balancer_name, attribute)
 
@@ -331,6 +341,22 @@ DESCRIBE_TAGS_TEMPLATE = """<DescribeTagsResponse xmlns="http://elasticloadbalan
 </DescribeTagsResponse>"""
 
 
+APPLY_SECURITY_GROUPS_TEMPLATE = """<ApplySecurityGroupsToLoadBalancerResponse xmlns="http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/">
+  <ApplySecurityGroupsToLoadBalancerResult>
+    <SecurityGroups>
+      {% for sg in security_groups %}
+      <member>
+        {{ sg }}
+      </member>
+      {% endfor %}
+    </SecurityGroups>
+  </ApplySecurityGroupsToLoadBalancerResult>
+  <ResponseMetadata>
+    <RequestId>360e81f7-1100-11e4-b6ed-0f30EXAMPLE</RequestId>
+  </ResponseMetadata>
+</ApplySecurityGroupsToLoadBalancerResponse>"""
+
+
 CREATE_LOAD_BALANCER_TEMPLATE = """<CreateLoadBalancerResponse xmlns="http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/">
   <CreateLoadBalancerResult>
     <DNSName>{{ load_balancer.dns_name }}</DNSName>
@@ -438,6 +464,11 @@ DESCRIBE_LOAD_BALANCERS_TEMPLATE = """<DescribeLoadBalancersResponse xmlns="http
               <member>{{ zone }}</member>
             {% endfor %}
           </AvailabilityZones>
+          <SecurityGroups>
+            {% for sg in load_balancer.security_groups %}
+              <member>{{ sg }}</member>
+            {% endfor %}
+          </SecurityGroups>
           <CanonicalHostedZoneName>{{ load_balancer.dns_name }}</CanonicalHostedZoneName>
           <CanonicalHostedZoneNameID>Z3ZONEID</CanonicalHostedZoneNameID>
           <Scheme>{{ load_balancer.scheme }}</Scheme>

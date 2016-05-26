@@ -1,5 +1,7 @@
 from __future__ import unicode_literals
 import uuid
+from datetime import datetime
+import pytz
 
 from moto.core import BaseBackend
 from moto.ec2 import ec2_backends
@@ -64,17 +66,39 @@ class TaskDefinition(BaseObject):
 
 
 class Service(BaseObject):
-    def __init__(self, cluster, service_name, task_definition, desired_count):
+    def __init__(self, cluster, service_name, task_definition, desired_count, role=None, loadBalancers=None):
         self.cluster_arn = cluster.arn
         self.arn = 'arn:aws:ecs:us-east-1:012345678910:service/{0}'.format(service_name)
         self.name = service_name
         self.status = 'ACTIVE'
-        self.running_count = 0
+        self.running_count = desired_count
         self.task_definition = task_definition.arn
         self.desired_count = desired_count
-        self.events = []
-        self.load_balancers = []
+        createdAt = datetime.now().replace(tzinfo=pytz.UTC).isoformat()
+        self.events = [{
+            "id": str(uuid.uuid4()),
+            "createdAt": createdAt,
+            "message": "service {} has reached a steady state.".format(self.name)
+        }]
+        if role:
+            if role.startswith("arn:aws"):
+                self.role_arn = role
+            else:
+                self.role_arn = 'arn:aws:iam::012345678910:role/{0}'.format(role)
+        else:
+            self.role_arn = ""
+        self.load_balancers = loadBalancers or []
         self.pending_count = 0
+        self.deployments = [{
+            'id': str(uuid.uuid4()),
+            'status': 'PRIMARY',
+            'taskDefinition': self.task_definition,
+            'desiredCount': self.desired_count,
+            'pendingCount': self.pending_count,
+            'runningCount': self.running_count,
+            'createdAt': createdAt,
+            'updatedAt': createdAt
+        }]
 
     @property
     def response_object(self):
@@ -92,6 +116,7 @@ class EC2ContainerServiceBackend(BaseBackend):
         self.services = {}
 
     def fetch_task_definition(self, task_definition_str):
+        task_definition_str = task_definition_str.split("/")[-1]
         task_definition_components = task_definition_str.split(':')
         if len(task_definition_components) == 2:
             family, revision = task_definition_components
@@ -167,7 +192,7 @@ class EC2ContainerServiceBackend(BaseBackend):
         else:
             raise Exception("{0} is not a task_definition".format(task_definition_name))
 
-    def create_service(self, cluster_str, service_name, task_definition_str, desired_count):
+    def create_service(self, cluster_str, service_name, task_definition_str, desired_count, role=None, loadBalancers=[]):
         cluster_name = cluster_str.split('/')[-1]
         if cluster_name in self.clusters:
             cluster = self.clusters[cluster_name]
@@ -175,10 +200,30 @@ class EC2ContainerServiceBackend(BaseBackend):
             raise Exception("{0} is not a cluster".format(cluster_name))
         task_definition = self.fetch_task_definition(task_definition_str)
         desired_count = desired_count if desired_count is not None else 0
-        service = Service(cluster, service_name, task_definition, desired_count)
+        service = Service(cluster, service_name, task_definition, desired_count, role, loadBalancers)
         cluster_service_pair = '{0}:{1}'.format(cluster_name, service_name)
         self.services[cluster_service_pair] = service
         return service
+
+    def describe_task_definition(self, task_definition_name):
+        task_definition_name = task_definition_name.split('/')[-1]
+        if ":" in task_definition_name:
+            family, revision = task_definition_name.split(':')
+            revision = int(revision)
+        else:
+            family = task_definition_name
+            revision = len(self.task_definitions[family])
+        return self.task_definitions[family][revision - 1]
+
+    def describe_services(self, cluster_str, service_strs):
+        cluster_name = cluster_str.split('/')[-1]
+        services = []
+        for service_str in service_strs:
+            service_name = service_str.split('/')[-1]
+            for key, value in self.services.items():
+                if cluster_name + ':' in key and service_name == value.name:
+                    services.append(value.response_object)
+        return services
 
     def list_services(self, cluster_str):
         cluster_name = cluster_str.split('/')[-1]
@@ -194,9 +239,13 @@ class EC2ContainerServiceBackend(BaseBackend):
         if cluster_service_pair in self.services:
             if task_definition_str is not None:
                 task_definition = self.fetch_task_definition(task_definition_str)
-                self.services[cluster_service_pair].task_definition = task_definition
+                self.services[cluster_service_pair].task_definition = task_definition.arn
             if desired_count is not None:
-                self.services[cluster_service_pair].desired_count = desired_count
+                service = self.services[cluster_service_pair]
+                service.desired_count = desired_count
+                service.running_count = desired_count
+                service.deployments[0]["desiredCount"] = desired_count
+                service.deployments[0]["runningCount"] = desired_count
             return self.services[cluster_service_pair]
         else:
             raise Exception("cluster {0} or service {1} does not exist".format(cluster_name, service_name))
@@ -208,7 +257,13 @@ class EC2ContainerServiceBackend(BaseBackend):
             if service.desired_count > 0:
                 raise Exception("Service must have desiredCount=0")
             else:
-                return self.services.pop(cluster_service_pair)
+                service.status = "INACTIVE"
+                service.events = []
+                service.deployments = []
+                service.desired_count = 0
+                service.running_count = 0
+                service.pending_count = 0
+                return service
         else:
             raise Exception("cluster {0} or service {1} does not exist".format(cluster_name, service_name))
 
