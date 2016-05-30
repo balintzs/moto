@@ -138,6 +138,23 @@ class AutoScalingResponse(BaseResponse):
         template = self.response_template(EXECUTE_POLICY_TEMPLATE)
         return template.render()
 
+    def enter_standby(self):
+        instance_states = self.autoscaling_backend.enter_standby(
+            instance_ids=self._get_multi_param('InstanceIds.member'),
+            auto_scaling_group_name=self._get_param('AutoScalingGroupName'),
+            should_decrement_desired_capacity= self._get_bool_param('ShouldDecrementDesiredCapacity')
+        )
+        template = self.response_template(ENTER_STANDBY_TEMPLATE)
+        return template.render(instance_states=instance_states)
+
+    def exit_standby(self):
+        instance_states = self.autoscaling_backend.exit_standby(
+            instance_ids=self._get_multi_param('InstanceIds.member'),
+            auto_scaling_group_name=self._get_param('AutoScalingGroupName'),
+        )
+        template = self.response_template(EXIT_STANDBY_TEMPLATE)
+        return template.render(instance_states=instance_states)
+
 
 CREATE_LAUNCH_CONFIGURATION_TEMPLATE = """<CreateLaunchConfigurationResponse xmlns="http://autoscaling.amazonaws.com/doc/2011-01-01/">
 <ResponseMetadata>
@@ -395,3 +412,47 @@ DELETE_POLICY_TEMPLATE = """<DeleteScalingPolicyResponse xmlns="http://autoscali
     <RequestId>70a76d42-9665-11e2-9fdf-211deEXAMPLE</RequestId>
   </ResponseMetadata>
 </DeleteScalingPolicyResponse>"""
+
+ENTER_STANDBY_TEMPLATE = """<EnterStandbyResponse xmlns="http://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <EnterStandbyResult>
+    <Activities>
+    {% for instance_state in instance_states %}
+      <member>
+        <ActivityId>12345678-1234-1234-1234-123456789012</ActivityId>
+        <AutoScalingGroupName>{{ instance_state.instance.autoscaling_group.name }}</AutoScalingGroupName>
+        <Description>Moving EC2 instance to Standby: {{ instance_state.instance.id }}</Description>
+        <Progress>50</Progress>
+        <Cause>At 2015-06-13T22:35:50Z instance {{ instance_state.instance.id }} was moved to standby in response to a user request, shrinking the capacity from 4 to 3.</Cause>
+        <StartTime>2015-06-13T22:35:50.884Z</StartTime>
+        <Details>{"Availability Zone":"us-east-1a","SubnetID":"subnet-12345678"}</Details>
+        <StatusCode>InProgress</StatusCode>
+      </member>
+    {% endfor %}
+    </Activities>
+  </EnterStandbyResult>
+  <ResponseMetadata>
+    <RequestId>7c6e177f-f082-11e1-ac58-3714bEXAMPLE</RequestId>
+  </ResponseMetadata>
+</EnterStandbyResponse>"""
+
+EXIT_STANDBY_TEMPLATE = """<ExitStandbyResponse xmlns="http://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <ExitStandbyResult>
+    <Activities>
+    {% for instance_state in instance_states %}
+      <member>
+        <ActivityId>12345678-1234-1234-1234-123456789012</ActivityId>
+        <AutoScalingGroupName>{{ instance_state.instance.autoscaling_group.name }}</AutoScalingGroupName>
+        <Description>Moving EC2 instance out of Standby: {{ instance_state.instance.id }}</Description>
+        <Progress>30</Progress>
+        <Cause>At 2015-06-13T22:43:53Z instance {{ instance_state.instance.id }} was moved out of standby in response to a user request, increasing the capacity from 3 to 4.</Cause>
+        <StartTime>2015-06-13T22:43:53.523Z</StartTime>
+        <Details>{"Availability Zone":"us-east-1a","SubnetID":"subnet-12345678"}</Details>
+        <StatusCode>PreInService</StatusCode>
+      </member>
+    {% endfor %}
+    </Activities>
+  </ExitStandbyResult>
+  <ResponseMetadata>
+    <RequestId>7c6e177f-f082-11e1-ac58-3714bEXAMPLE</RequestId>
+  </ResponseMetadata>
+</ExitStandbyResponse>"""

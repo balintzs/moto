@@ -311,6 +311,25 @@ class AutoScalingBackend(BaseBackend):
     def delete_launch_configuration(self, launch_configuration_name):
         self.launch_configurations.pop(launch_configuration_name, None)
 
+
+    def enter_standby(self, instance_ids, auto_scaling_group_name, should_decrement_desired_capacity):
+        group = self.autoscaling_groups[auto_scaling_group_name]
+        instance_states = []
+        for instance_state in group.instance_states:
+            if instance_state.instance.id in instance_ids:
+                instance_state.lifecycle_state = 'Standby'
+                instance_states.append(instance_state)
+        return instance_states
+
+    def exit_standby(self, instance_ids, auto_scaling_group_name):
+        group = self.autoscaling_groups[auto_scaling_group_name]
+        instance_states = []
+        for instance_state in group.instance_states:
+            if instance_state.instance.id in instance_ids:
+                instance_state.lifecycle_state = 'InService'
+                instance_states.append(instance_state)
+        return instance_states
+
     def create_autoscaling_group(self, name, availability_zones,
                                  desired_capacity, max_size, min_size,
                                  launch_config_name, vpc_zone_identifier,
