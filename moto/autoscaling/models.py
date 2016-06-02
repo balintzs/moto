@@ -10,9 +10,10 @@ DEFAULT_COOLDOWN = 300
 
 
 class InstanceState(object):
-    def __init__(self, instance, lifecycle_state="InService"):
+    def __init__(self, instance, lifecycle_state="InService", health_status="Healthy"):
         self.instance = instance
         self.lifecycle_state = lifecycle_state
+        self.health_status = health_status
 
 
 class FakeScalingPolicy(object):
@@ -310,7 +311,6 @@ class AutoScalingBackend(BaseBackend):
 
     def delete_launch_configuration(self, launch_configuration_name):
         self.launch_configurations.pop(launch_configuration_name, None)
-
 
     def enter_standby(self, instance_ids, auto_scaling_group_name, should_decrement_desired_capacity):
         group = self.autoscaling_groups[auto_scaling_group_name]
