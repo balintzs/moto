@@ -409,6 +409,30 @@ def test_enter_standby_boto3():
 
 
 @mock_autoscaling
+def test_enter_standby_boto3_w_decrement():
+    client = boto3.client('autoscaling', region_name='us-east-1')
+    _ = client.create_launch_configuration(
+        LaunchConfigurationName='test_launch_configuration'
+    )
+    response = client.create_auto_scaling_group(
+        AutoScalingGroupName='test_asg',
+        LaunchConfigurationName='test_launch_configuration',
+        MinSize=0,
+        MaxSize=20,
+        DesiredCapacity=5
+    )
+    response = client.describe_auto_scaling_instances()
+    instance_ids = [instance.get('InstanceId') for instance in response.get('AutoScalingInstances')]
+    client.enter_standby(
+        InstanceIds=instance_ids,
+        AutoScalingGroupName='test_asg',
+        ShouldDecrementDesiredCapacity=True
+    )
+    response = client.describe_auto_scaling_instances()
+    [instance.get('LifecycleState').should.equal('Standby') for instance in response.get('AutoScalingInstances')]
+    client.describe_auto_scaling_groups(AutoScalingGroupNames=['test_asg'])['AutoScalingGroups'][0].get('DesiredCapacity').should.equal(0)
+
+@mock_autoscaling
 def test_exit_standby_boto3():
     client = boto3.client('autoscaling', region_name='us-east-1')
     instance_ids = test_enter_standby_boto3()
@@ -418,6 +442,7 @@ def test_exit_standby_boto3():
     )
     response = client.describe_auto_scaling_instances()
     [instance.get('LifecycleState').should.equal('InService') for instance in response.get('AutoScalingInstances')]
+    client.describe_auto_scaling_groups(AutoScalingGroupNames=['test_asg'])['AutoScalingGroups'][0].get('DesiredCapacity').should.equal(5)
 
 
 @mock_autoscaling

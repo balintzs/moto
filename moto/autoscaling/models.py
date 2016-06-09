@@ -318,6 +318,7 @@ class AutoScalingBackend(BaseBackend):
         for instance_state in group.instance_states:
             if instance_state.instance.id in instance_ids:
                 instance_state.lifecycle_state = 'Standby'
+                group.desired_capacity -= 1
                 instance_states.append(instance_state)
         return instance_states
 
@@ -327,6 +328,7 @@ class AutoScalingBackend(BaseBackend):
         for instance_state in group.instance_states:
             if instance_state.instance.id in instance_ids:
                 instance_state.lifecycle_state = 'InService'
+                group.desired_capacity += 1
                 instance_states.append(instance_state)
         return instance_states
 
