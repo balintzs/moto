@@ -384,18 +384,33 @@ Boto3
 '''
 
 @mock_autoscaling
+@mock_elb
 def test_enter_standby_boto3():
+    elb_conn = boto.connect_elb()
+    zones = ['us-east-1a', 'us-east-1b']
+    ports = [(80, 8080, 'http'), (443, 8443, 'tcp')]
+    lb = elb_conn.create_load_balancer('my-lb', zones, ports)
+    instances_health = elb_conn.describe_instance_health('my-lb')
+    instances_health.should.be.empty
+    elb = elb_conn.get_all_load_balancers()[0]
     client = boto3.client('autoscaling', region_name='us-east-1')
-    _ = client.create_launch_configuration(
-        LaunchConfigurationName='test_launch_configuration'
+    conn = boto.connect_autoscale()
+    config = LaunchConfiguration(
+        name='test',
+        image_id='ami-abcd1234',
+        instance_type='t2.medium',
     )
-    response = client.create_auto_scaling_group(
-        AutoScalingGroupName='test_asg',
-        LaunchConfigurationName='test_launch_configuration',
-        MinSize=0,
-        MaxSize=20,
-        DesiredCapacity=5
+    conn.create_launch_configuration(config)
+    group = AutoScalingGroup(
+        name='test_asg',
+        max_size=0,
+        min_size=5,
+        launch_config=config,
+        load_balancers=["my-lb"],
     )
+    conn.create_auto_scaling_group(group)
+    elb = elb_conn.get_all_load_balancers()[0]
+    elb.instances.should.have.length_of(5)
     response = client.describe_auto_scaling_instances()
     instance_ids = [instance.get('InstanceId') for instance in response.get('AutoScalingInstances')]
     client.enter_standby(
@@ -405,6 +420,14 @@ def test_enter_standby_boto3():
     )
     response = client.describe_auto_scaling_instances()
     [instance.get('LifecycleState').should.equal('Standby') for instance in response.get('AutoScalingInstances')]
+
+    elb = elb_conn.get_all_load_balancers()[0]
+    print(elb_conn.describe_instance_health(load_balancer_name='my-lb'))
+    elb.instances.should.have.length_of(0)
+
+    autoscale_instance_ids = set(instance.instance_id for instance in group.instances)
+    elb_instace_ids = set(instance.id for instance in elb.instances)
+    autoscale_instance_ids.should.equal(elb_instace_ids)
     client.describe_auto_scaling_groups(AutoScalingGroupNames=['test_asg'])['AutoScalingGroups'][0].get('DesiredCapacity').should.equal(5)
     return instance_ids
 
@@ -429,6 +452,7 @@ def test_enter_standby_boto3_w_decrement():
         AutoScalingGroupName='test_asg',
         ShouldDecrementDesiredCapacity=True
     )
+
     response = client.describe_auto_scaling_instances()
     [instance.get('LifecycleState').should.equal('Standby') for instance in response.get('AutoScalingInstances')]
     client.describe_auto_scaling_groups(AutoScalingGroupNames=['test_asg'])['AutoScalingGroups'][0].get('DesiredCapacity').should.equal(0)

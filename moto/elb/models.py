@@ -286,8 +286,10 @@ class ELBBackend(BaseBackend):
         return load_balancer
 
     def deregister_instances(self, load_balancer_name, instance_ids):
+        print(instance_ids)
         load_balancer = self.get_load_balancer(load_balancer_name)
         new_instance_ids = [instance_id for instance_id in load_balancer.instance_ids if instance_id not in instance_ids]
+        print(new_instance_ids)
         load_balancer.instance_ids = new_instance_ids
         return load_balancer
 
