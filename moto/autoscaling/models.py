@@ -321,6 +321,7 @@ class AutoScalingBackend(BaseBackend):
                 if should_decrement_desired_capacity:
                     group.desired_capacity -= 1
                 instance_states.append(instance_state)
+        self.update_attached_elbs(auto_scaling_group_name)
         return instance_states
 
     def exit_standby(self, instance_ids, auto_scaling_group_name):
@@ -331,6 +332,7 @@ class AutoScalingBackend(BaseBackend):
                 instance_state.lifecycle_state = 'InService'
                 group.desired_capacity += 1
                 instance_states.append(instance_state)
+        self.update_attached_elbs(auto_scaling_group_name)
         return instance_states
 
     def create_autoscaling_group(self, name, availability_zones,
@@ -450,6 +452,7 @@ class AutoScalingBackend(BaseBackend):
     def update_attached_elbs(self, group_name):
         group = self.autoscaling_groups[group_name]
         group_instance_ids = set(state.instance.id for state in group.instance_states)
+        group_paused_instance_ids = set(state.instance.id for state in group.instance_states if "Standby" in state.lifecycle_state)
 
         try:
             elbs = self.elb_backend.describe_load_balancers(names=group.load_balancers)
@@ -461,6 +464,7 @@ class AutoScalingBackend(BaseBackend):
             elb_instace_ids = set(elb.instance_ids)
             self.elb_backend.register_instances(elb.name, group_instance_ids - elb_instace_ids)
             self.elb_backend.deregister_instances(elb.name, elb_instace_ids - group_instance_ids)
+            self.elb_backend.deregister_instances(elb.name, group_paused_instance_ids)
 
 
 autoscaling_backends = {}
