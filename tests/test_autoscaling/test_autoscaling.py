@@ -416,15 +416,21 @@ def test_enter_standby_boto3():
     client.enter_standby(
         InstanceIds=instance_ids,
         AutoScalingGroupName='test_asg',
-        ShouldDecrementDesiredCapacity=False
+        ShouldDecrementDesiredCapacity=True
     )
     response = client.describe_auto_scaling_instances()
-    [instance.get('LifecycleState').should.equal('Standby') for instance in response.get('AutoScalingInstances')]
+    for instance in response.get('AutoScalingInstances'):
+        instance.get('LifecycleState').should.equal('Standby')
 
     elb = elb_conn.get_all_load_balancers()[0]
-    print(elb_conn.describe_instance_health(load_balancer_name='my-lb'))
     elb.instances.should.have.length_of(0)
+    client.exit_standby(
+        InstanceIds=instance_ids,
+        AutoScalingGroupName='test_asg'
+    )
 
+    group = conn.get_all_groups()[0]
+    elb = elb_conn.get_all_load_balancers()[0]
     autoscale_instance_ids = set(instance.instance_id for instance in group.instances)
     elb_instace_ids = set(instance.id for instance in elb.instances)
     autoscale_instance_ids.should.equal(elb_instace_ids)

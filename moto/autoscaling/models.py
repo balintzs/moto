@@ -464,9 +464,7 @@ class AutoScalingBackend(BaseBackend):
             elb_instace_ids = set(elb.instance_ids)
             self.elb_backend.register_instances(elb.name, group_instance_ids - elb_instace_ids)
             self.elb_backend.deregister_instances(elb.name, elb_instace_ids - group_instance_ids)
-            print(group_paused_instance_ids)
-            print("WHAT IS HAPPENING {}".format(elb_instace_ids - group_paused_instance_ids))
-            self.elb_backend.deregister_instances(elb.name, elb_instace_ids - group_paused_instance_ids)
+            self.elb_backend.deregister_instances(elb.name, group_paused_instance_ids)
 
 
 autoscaling_backends = {}
