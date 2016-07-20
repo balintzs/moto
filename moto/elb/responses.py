@@ -22,7 +22,7 @@ class ELBResponse(BaseResponse):
         return elb_backends[self.region]
 
     def apply_security_groups_to_load_balancer(self):
-        LoadBalancerName = self._get_param('LoadBalancerName'),
+        LoadBalancerName = self._get_param('LoadBalancerName')
         SecurityGroups = self._get_multi_param("SecurityGroups.member")
         self.elb_backend.apply_security_groups_to_load_balancer(
             name=LoadBalancerName,
@@ -385,8 +385,6 @@ DESCRIBE_LOAD_BALANCERS_TEMPLATE = """<DescribeLoadBalancersResponse xmlns="http
     <LoadBalancerDescriptions>
       {% for load_balancer in load_balancers %}
         <member>
-          <SecurityGroups>
-          </SecurityGroups>
           <LoadBalancerName>{{ load_balancer.name }}</LoadBalancerName>
           <CreatedTime>2013-01-01T00:00:00.19000Z</CreatedTime>
           <HealthCheck>
