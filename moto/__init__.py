@@ -15,6 +15,7 @@ from .dynamodb import mock_dynamodb  # flake8: noqa
 from .dynamodb2 import mock_dynamodb2  # flake8: noqa
 from .ec2 import mock_ec2  # flake8: noqa
 from .ecs import mock_ecs  # flake8: noqa
+from .ecr import mock_ecr  # flake8: noqa
 from .elb import mock_elb  # flake8: noqa
 from .emr import mock_emr  # flake8: noqa
 from .glacier import mock_glacier  # flake8: noqa
