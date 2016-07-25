@@ -29,7 +29,7 @@ class ECSContainerRegistryResponse(BaseResponse):
         })
 
     def describe_repositories(self):
-        repositories = self.ecr_backend.list_clusters(
+        repositories = self.ecr_backend.describe_repositories(
             self._get_param("registryId"),
             self._get_param("repositoryNames")
         )
@@ -38,7 +38,7 @@ class ECSContainerRegistryResponse(BaseResponse):
         })
 
     def delete_repository(self):
-        repository = self.ecr_backend.list_clusters(
+        repository = self.ecr_backend.delete_repository(
             self._get_param("registryId"),
             self._get_param("repositoryName")
         )
