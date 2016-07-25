@@ -46,7 +46,7 @@ class Repository(BaseObject):
 
 class Image(BaseObject):
     def __init__(self, registry_id, repository_name, manifest):
-        self.registry_id = manifest
+        self.registry_id = registry_id
         self.repository_name = repository_name
         self.image_manifest = manifest
         self.image_id = dict(
@@ -76,8 +76,9 @@ class ECSContainerRegistryBackend(BaseBackend):
         return self.repositories.pop(repository_name)
 
     def put_image(self, registry_id, repository_name, image_manifest):
-        image = Image(registry_id, repository_name, image_manifest)
-        self.repositories[repository_name].images[image.image_id["imageTag"]] = image
+        repo = self.repositories[repository_name]
+        image = Image(repo.registry_id, repository_name, image_manifest)
+        repo.images[image.image_id["imageTag"]] = image
         return image.response_object
 
     def list_images(self, registry_id, repository_name):
