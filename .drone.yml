@@ -3,5 +3,7 @@ publish:
     repository: https://repository.prod.aws.skyscnr.com/artifactory/api/pypi/pypi
     username: $$PYPI_USERNAME
     password: $$PYPI_PASSWORD
+    distributions:
+      - bdist_wheel
     when:
       event: tag
