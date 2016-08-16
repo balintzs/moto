@@ -2,8 +2,8 @@ build:
   test:
     image: python:3-alpine
     commands:
-      # - apk add --update bash make ca-certificates
-      # - python setup.py install
+      - apk add --update bash make ca-certificates
+      - python setup.py install
       # - make init test
       - rm -rf tests
   versioning:
