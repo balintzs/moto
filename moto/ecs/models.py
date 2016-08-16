@@ -50,13 +50,15 @@ class Cluster(BaseObject):
 
 
 class TaskDefinition(BaseObject):
-    def __init__(self, family, revision, container_definitions, volumes=None):
+    def __init__(self, family, revision, container_definitions, volumes=None, task_role_arn=None):
         self.family = family
         self.revision = revision
         self.arn = 'arn:aws:ecs:us-east-1:012345678910:task-definition/{0}:{1}'.format(family, revision)
         self.container_definitions = container_definitions
         if volumes is not None:
             self.volumes = volumes
+        if task_role_arn is not None:
+            self.task_role_arn = task_role_arn
 
     @property
     def response_object(self):
@@ -164,13 +166,13 @@ class EC2ContainerServiceBackend(BaseBackend):
         else:
             raise Exception("{0} is not a cluster".format(cluster_name))
 
-    def register_task_definition(self, family, container_definitions, volumes):
+    def register_task_definition(self, family, container_definitions, volumes, task_role_arn):
         if family in self.task_definitions:
             revision = len(self.task_definitions[family]) + 1
         else:
             self.task_definitions[family] = []
             revision = 1
-        task_definition = TaskDefinition(family, revision, container_definitions, volumes)
+        task_definition = TaskDefinition(family, revision, container_definitions, volumes, task_role_arn)
         self.task_definitions[family].append(task_definition)
 
         return task_definition

@@ -57,7 +57,10 @@ class EC2ContainerServiceResponse(BaseResponse):
         family = self._get_param('family')
         container_definitions = self._get_param('containerDefinitions')
         volumes = self._get_param('volumes')
-        task_definition = self.ecs_backend.register_task_definition(family, container_definitions, volumes)
+        task_role_arn = self._get_param('taskRoleArn')
+        task_definition = self.ecs_backend.register_task_definition(
+            family, container_definitions, volumes, task_role_arn
+        )
         return json.dumps({
             'taskDefinition': task_definition.response_object
         })
