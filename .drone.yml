@@ -9,7 +9,8 @@ build:
   versioning:
     image: python:3-alpine
     commands:
-      - sed -i '/__version__/c\__version__ = "v$$BUILD_NUMBER"' moto/version.py
+      - sed -i '/__version__ =/c\__version__ = "v$$BUILD_NUMBER"' moto/__init__.py
+      - sed -i '/__version__ =/c\__version__ = "v$$BUILD_NUMBER"' setup.py
     when:
       event: push
 
