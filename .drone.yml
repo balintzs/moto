@@ -9,10 +9,10 @@ build:
   versioning:
     image: python:3-alpine
     commands:
-      - sed -i '/__version__ =/c\__version__ = "v$$BUILD_NUMBER"' moto/__init__.py
-      - sed -i '/__version__ =/c\__version__ = "v$$BUILD_NUMBER"' setup.py
+      - sed -i '/__version__ =/c\__version__ = "$$TAG"' moto/__init__.py
+      - sed -i '/__version__ =/c\__version__ = "$$TAG"' setup.py
     when:
-      event: push
+      event: tag
 
 publish:
   pypi:
@@ -22,4 +22,4 @@ publish:
     distributions:
       - bdist_wheel
     when:
-      event: push
+      event: tag
