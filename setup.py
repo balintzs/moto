@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from __future__ import unicode_literals
 from setuptools import setup, find_packages
-from moto import __version__
 
 install_requires = [
     "Jinja2",
@@ -19,6 +18,8 @@ extras_require = {
     # No builtin OrderedDict before 2.7
     ':python_version=="2.6"': ['ordereddict'],
 }
+
+__version__ = "dev"
 
 setup(
     name='moto',
