@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from __future__ import unicode_literals
 from setuptools import setup, find_packages
+from moto import __version__
 
 install_requires = [
     "Jinja2",
@@ -21,7 +22,7 @@ extras_require = {
 
 setup(
     name='moto',
-    version='0.4.24',
+    version=__version__,
     description='A library that allows your python tests to easily'
                 ' mock out the boto library',
     author='Steve Pulec',
