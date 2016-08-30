@@ -76,6 +76,7 @@ def test_create_resource():
         restApiId=api_id,
         resourceId=root_id,
     )
+    root_resource['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     root_resource.should.equal({
         'path': '/',
         'id': root_id,
@@ -133,6 +134,7 @@ def test_child_resource():
         restApiId=api_id,
         resourceId=tags_id,
     )
+    child_resource['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     child_resource.should.equal({
         'path': '/users/tags',
         'pathPart': 'tags',
@@ -168,6 +170,7 @@ def test_create_method():
         httpMethod='GET'
     )
 
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'httpMethod': 'GET',
         'authorizationType': 'none',
@@ -206,6 +209,7 @@ def test_create_method_response():
         httpMethod='GET',
         statusCode='200',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'ResponseMetadata': {'HTTPStatusCode': 200},
         'statusCode': '200'
@@ -217,6 +221,7 @@ def test_create_method_response():
         httpMethod='GET',
         statusCode='200',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'ResponseMetadata': {'HTTPStatusCode': 200},
         'statusCode': '200'
@@ -228,6 +233,7 @@ def test_create_method_response():
         httpMethod='GET',
         statusCode='200',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({'ResponseMetadata': {'HTTPStatusCode': 200}})
 
 
@@ -264,6 +270,7 @@ def test_integrations():
         type='HTTP',
         uri='http://httpbin.org/robots.txt',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'ResponseMetadata': {'HTTPStatusCode': 200},
         'httpMethod': 'GET',
@@ -284,6 +291,7 @@ def test_integrations():
         resourceId=root_id,
         httpMethod='GET'
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'ResponseMetadata': {'HTTPStatusCode': 200},
         'httpMethod': 'GET',
@@ -303,6 +311,7 @@ def test_integrations():
         restApiId=api_id,
         resourceId=root_id,
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response['resourceMethods']['GET']['methodIntegration'].should.equal({
         'httpMethod': 'GET',
         'integrationResponses': {
@@ -328,6 +337,38 @@ def test_integrations():
         resourceId=root_id,
     )
     response['resourceMethods']['GET'].shouldnt.contain("methodIntegration")
+
+    # Create a new integration with a requestTemplates config
+
+    client.put_method(
+        restApiId=api_id,
+        resourceId=root_id,
+        httpMethod='POST',
+        authorizationType='none',
+    )
+
+    templates = {
+        # example based on http://docs.aws.amazon.com/apigateway/latest/developerguide/api-as-kinesis-proxy-export-swagger-with-extensions.html
+        'application/json': "{\n    \"StreamName\": \"$input.params('stream-name')\",\n    \"Records\": []\n}"
+    }
+    test_uri = 'http://example.com/foobar.txt'
+    response = client.put_integration(
+        restApiId=api_id,
+        resourceId=root_id,
+        httpMethod='POST',
+        type='HTTP',
+        uri=test_uri,
+        requestTemplates=templates
+    )
+    response['ResponseMetadata'].should.equal({'HTTPStatusCode': 200})
+
+    response = client.get_integration(
+        restApiId=api_id,
+        resourceId=root_id,
+        httpMethod='POST'
+    )
+    response['uri'].should.equal(test_uri)
+    response['requestTemplates'].should.equal(templates)
 
 
 @mock_apigateway
@@ -371,6 +412,7 @@ def test_integration_response():
         statusCode='200',
         selectionPattern='foobar',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'statusCode': '200',
         'selectionPattern': 'foobar',
@@ -386,6 +428,7 @@ def test_integration_response():
         httpMethod='GET',
         statusCode='200',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'statusCode': '200',
         'selectionPattern': 'foobar',
@@ -400,6 +443,7 @@ def test_integration_response():
         resourceId=root_id,
         httpMethod='GET',
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response['methodIntegration']['integrationResponses'].should.equal({
         '200': {
             'responseTemplates': {
@@ -428,6 +472,7 @@ def test_integration_response():
 @mock_apigateway
 def test_deployment():
     client = boto3.client('apigateway', region_name='us-west-2')
+    stage_name = 'staging'
     response = client.create_rest_api(
         name='my_api',
         description='this is my api',
@@ -436,7 +481,7 @@ def test_deployment():
 
     response = client.create_deployment(
         restApiId=api_id,
-        stageName='staging',
+        stageName=stage_name,
     )
     deployment_id = response['id']
 
@@ -444,6 +489,7 @@ def test_deployment():
         restApiId=api_id,
         deploymentId=deployment_id,
     )
+    response['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     response.should.equal({
         'id': deployment_id,
         'ResponseMetadata': {'HTTPStatusCode': 200}
@@ -465,6 +511,35 @@ def test_deployment():
         restApiId=api_id,
     )
     len(response['items']).should.equal(0)
+
+    # test deployment stages
+
+    stage = client.get_stage(
+        restApiId=api_id,
+        stageName=stage_name
+    )
+    stage['stageName'].should.equal(stage_name)
+    stage['deploymentId'].should.equal(deployment_id)
+
+    stage = client.update_stage(
+        restApiId=api_id,
+        stageName=stage_name,
+        patchOperations=[
+            {
+                'op': 'replace',
+                'path': 'description',
+                'value': '_new_description_'
+            },
+        ]
+    )
+
+    stage = client.get_stage(
+        restApiId=api_id,
+        stageName=stage_name
+    )
+    stage['stageName'].should.equal(stage_name)
+    stage['deploymentId'].should.equal(deployment_id)
+    stage['description'].should.equal('_new_description_')
 
 
 @httpretty.activate

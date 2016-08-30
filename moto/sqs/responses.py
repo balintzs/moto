@@ -38,6 +38,24 @@ class SQSResponse(BaseResponse):
             queue_name = self.path.split("/")[-1]
         return queue_name
 
+    def _get_validated_visibility_timeout(self):
+        """
+        :raises ValueError: If specified visibility timeout exceeds MAXIMUM_VISIBILTY_TIMEOUT
+        :raises TypeError: If visibility timeout was not specified
+        """
+        visibility_timeout = int(self.querystring.get("VisibilityTimeout")[0])
+
+        if visibility_timeout > MAXIMUM_VISIBILTY_TIMEOUT:
+            raise ValueError
+
+        return visibility_timeout
+
+    def call_action(self):
+        status_code, headers, body = super(SQSResponse, self).call_action()
+        if status_code == 404:
+            return 404, headers, ERROR_INEXISTENT_QUEUE
+        return status_code, headers, body
+
     def create_queue(self):
         queue_name = self.querystring.get("QueueName")[0]
         queue = self.sqs_backend.create_queue(queue_name, visibility_timeout=self.attribute.get('VisibilityTimeout'),
@@ -63,12 +81,11 @@ class SQSResponse(BaseResponse):
     def change_message_visibility(self):
         queue_name = self._get_queue_name()
         receipt_handle = self.querystring.get("ReceiptHandle")[0]
-        visibility_timeout = int(self.querystring.get("VisibilityTimeout")[0])
 
-        if visibility_timeout > MAXIMUM_VISIBILTY_TIMEOUT:
-            return "Invalid request, maximum visibility timeout is {0}".format(
-                MAXIMUM_VISIBILTY_TIMEOUT
-            ), dict(status=400)
+        try:
+            visibility_timeout = self._get_validated_visibility_timeout()
+        except ValueError:
+            return ERROR_MAX_VISIBILITY_TIMEOUT_RESPONSE, dict(status=400)
 
         try:
             self.sqs_backend.change_message_visibility(
@@ -233,7 +250,14 @@ class SQSResponse(BaseResponse):
         except TypeError:
             wait_time = queue.wait_time_seconds
 
-        messages = self.sqs_backend.receive_messages(queue_name, message_count, wait_time)
+        try:
+            visibility_timeout = self._get_validated_visibility_timeout()
+        except TypeError:
+            visibility_timeout = queue.visibility_timeout
+        except ValueError:
+            return ERROR_MAX_VISIBILITY_TIMEOUT_RESPONSE, dict(status=400)
+
+        messages = self.sqs_backend.receive_messages(queue_name, message_count, wait_time, visibility_timeout)
         template = self.response_template(RECEIVE_MESSAGE_RESPONSE)
         output = template.render(messages=messages)
         return output
@@ -245,9 +269,7 @@ CREATE_QUEUE_RESPONSE = """<CreateQueueResponse>
         <VisibilityTimeout>{{ queue.visibility_timeout }}</VisibilityTimeout>
     </CreateQueueResult>
     <ResponseMetadata>
-        <RequestId>
-            7a62c49f-347e-4fc4-9331-6e8e7a96aa73
-        </RequestId>
+        <RequestId>7a62c49f-347e-4fc4-9331-6e8e7a96aa73</RequestId>
     </ResponseMetadata>
 </CreateQueueResponse>"""
 
@@ -267,17 +289,13 @@ LIST_QUEUES_RESPONSE = """<ListQueuesResponse>
         {% endfor %}
     </ListQueuesResult>
     <ResponseMetadata>
-        <RequestId>
-            725275ae-0b9b-4762-b238-436d7c65a1ac
-        </RequestId>
+        <RequestId>725275ae-0b9b-4762-b238-436d7c65a1ac</RequestId>
     </ResponseMetadata>
 </ListQueuesResponse>"""
 
 DELETE_QUEUE_RESPONSE = """<DeleteQueueResponse>
     <ResponseMetadata>
-        <RequestId>
-            6fde8d1e-52cd-4581-8cd9-c512f4c64223
-        </RequestId>
+        <RequestId>6fde8d1e-52cd-4581-8cd9-c512f4c64223</RequestId>
     </ResponseMetadata>
 </DeleteQueueResponse>"""
 
@@ -297,28 +315,24 @@ GET_QUEUE_ATTRIBUTES_RESPONSE = """<GetQueueAttributesResponse>
 
 SET_QUEUE_ATTRIBUTE_RESPONSE = """<SetQueueAttributesResponse>
     <ResponseMetadata>
-        <RequestId>
-            e5cca473-4fc0-4198-a451-8abb94d02c75
-        </RequestId>
+        <RequestId>e5cca473-4fc0-4198-a451-8abb94d02c75</RequestId>
     </ResponseMetadata>
 </SetQueueAttributesResponse>"""
 
 SEND_MESSAGE_RESPONSE = """<SendMessageResponse>
     <SendMessageResult>
         <MD5OfMessageBody>
-            {{ message.md5 }}
+            {{- message.md5 -}}
         </MD5OfMessageBody>
         {% if message.message_attributes.items()|count > 0 %}
           <MD5OfMessageAttributes>324758f82d026ac6ec5b31a3b192d1e3</MD5OfMessageAttributes>
         {% endif %}
         <MessageId>
-            {{ message.id }}
+            {{- message.id -}}
         </MessageId>
     </SendMessageResult>
     <ResponseMetadata>
-        <RequestId>
-            27daac76-34dd-47df-bd01-1f6e873584a0
-        </RequestId>
+        <RequestId>27daac76-34dd-47df-bd01-1f6e873584a0</RequestId>
     </ResponseMetadata>
 </SendMessageResponse>"""
 
@@ -366,9 +380,7 @@ RECEIVE_MESSAGE_RESPONSE = """<ReceiveMessageResponse>
     {% endfor %}
   </ReceiveMessageResult>
   <ResponseMetadata>
-    <RequestId>
-      b6633655-283d-45b4-aee4-4e84e0ae6afa
-    </RequestId>
+    <RequestId>b6633655-283d-45b4-aee4-4e84e0ae6afa</RequestId>
   </ResponseMetadata>
 </ReceiveMessageResponse>"""
 
@@ -392,9 +404,7 @@ SEND_MESSAGE_BATCH_RESPONSE = """<SendMessageBatchResponse>
 
 DELETE_MESSAGE_RESPONSE = """<DeleteMessageResponse>
     <ResponseMetadata>
-        <RequestId>
-            b5293cb5-d306-4a17-9048-b263635abe42
-        </RequestId>
+        <RequestId>b5293cb5-d306-4a17-9048-b263635abe42</RequestId>
     </ResponseMetadata>
 </DeleteMessageResponse>"""
 
@@ -413,17 +423,13 @@ DELETE_MESSAGE_BATCH_RESPONSE = """<DeleteMessageBatchResponse>
 
 CHANGE_MESSAGE_VISIBILITY_RESPONSE = """<ChangeMessageVisibilityResponse>
     <ResponseMetadata>
-        <RequestId>
-            6a7a282a-d013-4a59-aba9-335b0fa48bed
-        </RequestId>
+        <RequestId>6a7a282a-d013-4a59-aba9-335b0fa48bed</RequestId>
     </ResponseMetadata>
 </ChangeMessageVisibilityResponse>"""
 
 PURGE_QUEUE_RESPONSE = """<PurgeQueueResponse>
     <ResponseMetadata>
-        <RequestId>
-            6fde8d1e-52cd-4581-8cd9-c512f4c64223
-        </RequestId>
+        <RequestId>6fde8d1e-52cd-4581-8cd9-c512f4c64223</RequestId>
     </ResponseMetadata>
 </PurgeQueueResponse>"""
 
@@ -435,4 +441,16 @@ ERROR_TOO_LONG_RESPONSE = """<ErrorResponse xmlns="http://queue.amazonaws.com/do
         <Detail/>
     </Error>
     <RequestId>6fde8d1e-52cd-4581-8cd9-c512f4c64223</RequestId>
+</ErrorResponse>"""
+
+ERROR_MAX_VISIBILITY_TIMEOUT_RESPONSE = "Invalid request, maximum visibility timeout is {0}".format(MAXIMUM_VISIBILTY_TIMEOUT)
+
+ERROR_INEXISTENT_QUEUE = """<ErrorResponse xmlns="http://queue.amazonaws.com/doc/2012-11-05/">
+    <Error>
+        <Type>Sender</Type>
+        <Code>AWS.SimpleQueueService.NonExistentQueue</Code>
+        <Message>The specified queue does not exist for this wsdl version.</Message>
+        <Detail/>
+    </Error>
+    <RequestId>b8bc806b-fa6b-53b5-8be8-cfa2f9836bc3</RequestId>
 </ErrorResponse>"""

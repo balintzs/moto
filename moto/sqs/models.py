@@ -122,7 +122,7 @@ class Queue(object):
         self.last_modified_timestamp = now
         self.maximum_message_size = 64 << 10
         self.message_retention_period = 86400 * 4  # four days
-        self.queue_arn = 'arn:aws:sqs:sqs.us-east-1:123456789012:%s' % self.name
+        self.queue_arn = 'arn:aws:sqs:{0}:123456789012:{1}'.format(self.region, self.name)
         self.receive_message_wait_time_seconds = 0
 
     @classmethod
@@ -265,7 +265,7 @@ class SQSBackend(BaseBackend):
 
         return message
 
-    def receive_messages(self, queue_name, count, wait_seconds_timeout):
+    def receive_messages(self, queue_name, count, wait_seconds_timeout, visibility_timeout):
         """
         Attempt to retrieve visible messages from a queue.
 
@@ -276,6 +276,7 @@ class SQSBackend(BaseBackend):
 
         :param string queue_name: The name of the queue to read from.
         :param int count: The maximum amount of messages to retrieve.
+        :param int visibility_timeout: The number of seconds the message should remain invisible to other queue readers.
         """
         queue = self.get_queue(queue_name)
         result = []
@@ -288,7 +289,7 @@ class SQSBackend(BaseBackend):
                 if not message.visible:
                     continue
                 message.mark_received(
-                    visibility_timeout=queue.visibility_timeout
+                    visibility_timeout=visibility_timeout
                 )
                 result.append(message)
                 if len(result) >= count:

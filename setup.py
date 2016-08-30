@@ -12,6 +12,8 @@ install_requires = [
     "six",
     "werkzeug",
     "pytz==2015.7",
+    "sure",
+    "freezegun"
 ]
 
 extras_require = {

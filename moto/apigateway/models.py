@@ -27,11 +27,12 @@ class IntegrationResponse(dict):
 
 
 class Integration(dict):
-    def __init__(self, integration_type, uri, http_method):
+    def __init__(self, integration_type, uri, http_method, request_templates=None):
         super(Integration, self).__init__()
         self['type'] = integration_type
         self['uri'] = uri
         self['httpMethod'] = http_method
+        self['requestTemplates'] = request_templates
         self["integrationResponses"] = {
             "200": IntegrationResponse(200)
         }
@@ -136,8 +137,8 @@ class Resource(object):
     def get_method(self, method_type):
         return self.resource_methods[method_type]
 
-    def add_integration(self, method_type, integration_type, uri):
-        integration = Integration(integration_type, uri, method_type)
+    def add_integration(self, method_type, integration_type, uri, request_templates=None):
+        integration = Integration(integration_type, uri, method_type, request_templates=request_templates)
         self.resource_methods[method_type]['methodIntegration'] = integration
         return integration
 
@@ -146,6 +147,26 @@ class Resource(object):
 
     def delete_integration(self, method_type):
         return self.resource_methods[method_type].pop('methodIntegration')
+
+
+class Stage(dict):
+    def __init__(self, name=None, deployment_id=None):
+        super(Stage, self).__init__()
+        self['stageName'] = name
+        self['deploymentId'] = deployment_id
+        self['methodSettings'] = {}
+        self['variables'] = {}
+        self['description'] = ''
+
+    def apply_operations(self, patch_operations):
+        for op in patch_operations:
+            if op['op'] == 'replace':
+                # TODO: match the path against the values hash
+                # (e.g., path could be '/*/*/logging/loglevel')
+                self[op['path']] = op['value']
+            else:
+                raise Exception('Patch operation "%s" not implemented' % op['op'])
+        return self
 
 
 class RestAPI(object):
@@ -157,6 +178,7 @@ class RestAPI(object):
         self.create_date = datetime.datetime.utcnow()
 
         self.deployments = {}
+        self.stages = {}
 
         self.resources = {}
         self.add_child('/')  # Add default child
@@ -201,6 +223,7 @@ class RestAPI(object):
         deployment_id = create_id()
         deployment = Deployment(deployment_id, name)
         self.deployments[deployment_id] = deployment
+        self.stages[name] = Stage(name=name, deployment_id=deployment_id)
 
         self.update_integration_mocks(name)
 
@@ -275,6 +298,17 @@ class APIGatewayBackend(BaseBackend):
         method = resource.add_method(method_type, authorization_type)
         return method
 
+    def get_stage(self, function_id, stage_name):
+        api = self.get_rest_api(function_id)
+        return api.stages.get(stage_name)
+
+    def update_stage(self, function_id, stage_name, patch_operations):
+        stage = self.get_stage(function_id, stage_name)
+        if not stage:
+            api = self.get_rest_api(function_id)
+            stage = api.stages[stage_name] = Stage()
+        return stage.apply_operations(patch_operations)
+
     def get_method_response(self, function_id, resource_id, method_type, response_code):
         method = self.get_method(function_id, resource_id, method_type)
         method_response = method.get_response(response_code)
@@ -290,9 +324,11 @@ class APIGatewayBackend(BaseBackend):
         method_response = method.delete_response(response_code)
         return method_response
 
-    def create_integration(self, function_id, resource_id, method_type, integration_type, uri):
+    def create_integration(self, function_id, resource_id, method_type, integration_type, uri,
+            request_templates=None):
         resource = self.get_resource(function_id, resource_id)
-        integration = resource.add_integration(method_type, integration_type, uri)
+        integration = resource.add_integration(method_type, integration_type, uri,
+            request_templates=request_templates)
         return integration
 
     def get_integration(self, function_id, resource_id, method_type):

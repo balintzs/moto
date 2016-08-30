@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 import boto
 import boto3
+import botocore.exceptions
 from boto.exception import SQSError
 from boto.sqs.message import RawMessage, Message
 
@@ -204,6 +205,23 @@ def test_message_becomes_inflight_when_received():
 
 
 @mock_sqs
+def test_receive_message_with_explicit_visibility_timeout():
+    conn = boto.connect_sqs('the_key', 'the_secret')
+    queue = conn.create_queue("test-queue", visibility_timeout=60)
+    queue.set_message_class(RawMessage)
+
+    body_one = 'this is another test message'
+    queue.write(queue.new_message(body_one))
+
+    queue.count().should.equal(1)
+    messages = conn.receive_message(queue, number_messages=1, visibility_timeout=0)
+
+    assert len(messages) == 1
+
+    # Message should remain visible
+    queue.count().should.equal(1)
+
+@mock_sqs
 def test_change_message_visibility():
     conn = boto.connect_sqs('the_key', 'the_secret')
     queue = conn.create_queue("test-queue", visibility_timeout=2)
@@ -377,7 +395,7 @@ def test_queue_attributes():
     attributes = queue.get_attributes()
 
     attributes['QueueArn'].should.look_like(
-        'arn:aws:sqs:sqs.us-east-1:123456789012:%s' % queue_name)
+        'arn:aws:sqs:us-east-1:123456789012:%s' % queue_name)
 
     attributes['VisibilityTimeout'].should.look_like(str(visibility_timeout))
 
@@ -484,10 +502,35 @@ boto3
 
 
 @mock_sqs
+def test_boto3_get_queue():
+    sqs = boto3.resource('sqs', region_name='us-east-1')
+    new_queue = sqs.create_queue(QueueName='test-queue')
+    new_queue.should_not.be.none
+    new_queue.should.have.property('url').should.contain('test-queue')
+
+    queue = sqs.get_queue_by_name(QueueName='test-queue')
+    queue.attributes.get('QueueArn').should_not.be.none
+    queue.attributes.get('QueueArn').split(':')[-1].should.equal('test-queue')
+    queue.attributes.get('QueueArn').split(':')[3].should.equal('us-east-1')
+    queue.attributes.get('VisibilityTimeout').should_not.be.none
+    queue.attributes.get('VisibilityTimeout').should.equal('30')
+
+
+@mock_sqs
+def test_boto3_get_inexistent_queue():
+    sqs = boto3.resource('sqs', region_name='us-east-1')
+    sqs.get_queue_by_name.when.called_with(QueueName='nonexisting-queue').should.throw(botocore.exceptions.ClientError)
+
+
+@mock_sqs
 def test_boto3_message_send():
     sqs = boto3.resource('sqs', region_name='us-east-1')
     queue = sqs.create_queue(QueueName="blah")
-    queue.send_message(MessageBody="derp")
+    msg = queue.send_message(MessageBody="derp")
+
+    msg.get('MD5OfMessageBody').should.equal('58fd9edd83341c29f1aebba81c31e257')
+    msg.get('ResponseMetadata', {}).get('RequestId').should.equal('27daac76-34dd-47df-bd01-1f6e873584a0')
+    msg.get('MessageId').should_not.contain(' \n')
 
     messages = queue.receive_messages()
     messages.should.have.length_of(1)

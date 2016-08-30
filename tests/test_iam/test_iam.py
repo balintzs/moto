@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 import boto
+import boto3
 import sure  # noqa
 
 from nose.tools import assert_raises, assert_equals, assert_not_equals
@@ -19,6 +20,14 @@ def test_get_all_server_certs():
     cert1 = certs[0]
     cert1.server_certificate_name.should.equal("certname")
     cert1.arn.should.equal("arn:aws:iam::123456789012:server-certificate/certname")
+
+
+@mock_iam()
+def test_get_server_cert_doesnt_exist():
+    conn = boto.connect_iam()
+
+    with assert_raises(BotoServerError):
+        conn.get_server_certificate("NonExistant")
 
 
 @mock_iam()
@@ -174,6 +183,18 @@ def test_get_user():
         conn.get_user('my-user')
     conn.create_user('my-user')
     conn.get_user('my-user')
+
+@mock_iam()
+def test_list_users():
+    path_prefix = '/'
+    max_items = 10
+    conn = boto3.client('iam')
+    conn.create_user(UserName='my-user')
+    response = conn.list_users(PathPrefix=path_prefix, MaxItems=max_items)
+    assert_equals(
+        response['Users'],
+        []
+    )
 
 
 @mock_iam()

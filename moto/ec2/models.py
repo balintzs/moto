@@ -911,6 +911,7 @@ class Ami(TaggedEC2Resource):
         self.architecture = None
         self.kernel_id = None
         self.platform = None
+        self.creation_date = datetime.utcnow().isoformat()
 
         if instance:
             self.instance = instance
@@ -1513,11 +1514,12 @@ class SecurityGroupIngress(object):
 
 
 class VolumeAttachment(object):
-    def __init__(self, volume, instance, device):
+    def __init__(self, volume, instance, device, status):
         self.volume = volume
         self.attach_time = utc_date_and_time()
         self.instance = instance
         self.device = device
+        self.status = status
 
     @classmethod
     def create_from_cloudformation_json(cls, resource_name, cloudformation_json, region_name):
@@ -1536,7 +1538,7 @@ class VolumeAttachment(object):
 
 
 class Volume(TaggedEC2Resource):
-    def __init__(self, ec2_backend, volume_id, size, zone, snapshot_id=None):
+    def __init__(self, ec2_backend, volume_id, size, zone, snapshot_id=None, encrypted=False):
         self.id = volume_id
         self.size = size
         self.zone = zone
@@ -1544,6 +1546,7 @@ class Volume(TaggedEC2Resource):
         self.attachment = None
         self.snapshot_id = snapshot_id
         self.ec2_backend = ec2_backend
+        self.encrypted = encrypted
 
     @classmethod
     def create_from_cloudformation_json(cls, resource_name, cloudformation_json, region_name):
@@ -1577,6 +1580,8 @@ class Volume(TaggedEC2Resource):
             return self.attachment.device
         if filter_name == 'attachment.instance-id':
             return self.attachment.instance.id
+        if filter_name == 'attachment.status':
+            return self.attachment.status
 
         if filter_name == 'create-time':
             return self.create_time
@@ -1593,6 +1598,9 @@ class Volume(TaggedEC2Resource):
         if filter_name == 'volume-id':
             return self.id
 
+        if filter_name == 'encrypted':
+            return str(self.encrypted).lower()
+
         filter_value = super(Volume, self).get_filter_value(filter_name)
 
         if filter_value is None:
@@ -1602,7 +1610,7 @@ class Volume(TaggedEC2Resource):
 
 
 class Snapshot(TaggedEC2Resource):
-    def __init__(self, ec2_backend, snapshot_id, volume, description):
+    def __init__(self, ec2_backend, snapshot_id, volume, description, encrypted=False):
         self.id = snapshot_id
         self.volume = volume
         self.description = description
@@ -1610,6 +1618,7 @@ class Snapshot(TaggedEC2Resource):
         self.create_volume_permission_groups = set()
         self.ec2_backend = ec2_backend
         self.status = 'completed'
+        self.encrypted = encrypted
 
     def get_filter_value(self, filter_name):
 
@@ -1628,6 +1637,9 @@ class Snapshot(TaggedEC2Resource):
         if filter_name == 'volume-size':
             return self.volume.size
 
+        if filter_name == 'encrypted':
+            return str(self.encrypted).lower()
+
         filter_value = super(Snapshot, self).get_filter_value(filter_name)
 
         if filter_value is None:
@@ -1643,14 +1655,16 @@ class EBSBackend(object):
         self.snapshots = {}
         super(EBSBackend, self).__init__()
 
-    def create_volume(self, size, zone_name, snapshot_id=None):
+    def create_volume(self, size, zone_name, snapshot_id=None, encrypted=False):
         volume_id = random_volume_id()
         zone = self.get_zone_by_name(zone_name)
         if snapshot_id:
             snapshot = self.get_snapshot(snapshot_id)
             if size is None:
                 size = snapshot.volume.size
-        volume = Volume(self, volume_id, size, zone, snapshot_id)
+            if snapshot.encrypted:
+                encrypted = snapshot.encrypted
+        volume = Volume(self, volume_id, size, zone, snapshot_id, encrypted)
         self.volumes[volume_id] = volume
         return volume
 
@@ -1678,7 +1692,7 @@ class EBSBackend(object):
         if not volume or not instance:
             return False
 
-        volume.attachment = VolumeAttachment(volume, instance, device_path)
+        volume.attachment = VolumeAttachment(volume, instance, device_path, 'attached')
         # Modify instance to capture mount of block device.
         bdt = BlockDeviceType(volume_id=volume_id, status=volume.status, size=volume.size,
                               attach_time=utc_date_and_time())
@@ -1692,6 +1706,7 @@ class EBSBackend(object):
         old_attachment = volume.attachment
         if not old_attachment:
             raise InvalidVolumeAttachmentError(volume_id, instance_id)
+        old_attachment.status = 'detached'
 
         volume.attachment = None
         return old_attachment
@@ -1699,7 +1714,7 @@ class EBSBackend(object):
     def create_snapshot(self, volume_id, description):
         snapshot_id = random_snapshot_id()
         volume = self.get_volume(volume_id)
-        snapshot = Snapshot(self, snapshot_id, volume, description)
+        snapshot = Snapshot(self, snapshot_id, volume, description, volume.encrypted)
         self.snapshots[snapshot_id] = snapshot
         return snapshot
 
@@ -1777,6 +1792,10 @@ class VPC(TaggedEC2Resource):
             return self.id
         elif filter_name == 'cidr':
             return self.cidr_block
+        elif filter_name == 'isDefault':
+            return self.is_default
+        elif filter_name == 'state':
+            return self.state
         elif filter_name == 'dhcp-options-id':
             if not self.dhcp_options:
                 return None

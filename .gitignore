@@ -1,5 +1,6 @@
 moto.egg-info/*
 dist/*
+.cache
 .tox
 .coverage
 cover/
@@ -11,3 +12,4 @@ build/
 *.swp
 .DS_Store
 venv/
+python_env

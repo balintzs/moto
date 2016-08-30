@@ -27,8 +27,23 @@ dummy_template2 = {
     "Resources": {},
 }
 
+# template with resource which has no delete attribute defined
+dummy_template3 = {
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Stack 3",
+    "Resources": {
+        "VPC": {
+            "Properties": {
+                "CidrBlock": "192.168.0.0/16",
+        },
+        "Type": "AWS::EC2::VPC"
+        }
+    },
+}
+
 dummy_template_json = json.dumps(dummy_template)
 dummy_template_json2 = json.dumps(dummy_template2)
+dummy_template_json3 = json.dumps(dummy_template3)
 
 
 @mock_cloudformation
@@ -221,6 +236,19 @@ def test_delete_stack_by_id():
 
 
 @mock_cloudformation
+def test_delete_stack_with_resource_missing_delete_attr():
+    conn = boto.connect_cloudformation()
+    conn.create_stack(
+        "test_stack",
+        template_body=dummy_template_json3,
+    )
+
+    conn.list_stacks().should.have.length_of(1)
+    conn.delete_stack("test_stack")
+    conn.list_stacks().should.have.length_of(0)
+
+
+@mock_cloudformation
 def test_bad_describe_stack():
     conn = boto.connect_cloudformation()
     with assert_raises(BotoServerError):
@@ -326,3 +354,39 @@ def test_update_stack_when_rolled_back():
     ex.error_code.should.equal('ValidationError')
     ex.reason.should.equal('Bad Request')
     ex.status.should.equal(400)
+
+@mock_cloudformation
+def test_describe_stack_events_shows_create_update_and_delete():
+    conn = boto.connect_cloudformation()
+    stack_id = conn.create_stack("test_stack", template_body=dummy_template_json)
+    conn.update_stack(stack_id, template_body=dummy_template_json2)
+    conn.delete_stack(stack_id)
+
+    # assert begins and ends with stack events
+    events = conn.describe_stack_events(stack_id)
+    events[0].resource_type.should.equal("AWS::CloudFormation::Stack")
+    events[-1].resource_type.should.equal("AWS::CloudFormation::Stack")
+
+    # testing ordering of stack events without assuming resource events will not exist
+    stack_events_to_look_for = iter([
+        ("CREATE_IN_PROGRESS", "User Initiated"), ("CREATE_COMPLETE", None),
+        ("UPDATE_IN_PROGRESS", "User Initiated"), ("UPDATE_COMPLETE", None),
+        ("DELETE_IN_PROGRESS", "User Initiated"), ("DELETE_COMPLETE", None)])
+    try:
+        for event in events:
+            event.stack_id.should.equal(stack_id)
+            event.stack_name.should.equal("test_stack")
+
+            if event.resource_type == "AWS::CloudFormation::Stack":
+                event.logical_resource_id.should.equal("test_stack")
+                event.physical_resource_id.should.equal(stack_id)
+
+                status_to_look_for, reason_to_look_for = next(stack_events_to_look_for)
+                event.resource_status.should.equal(status_to_look_for)
+                if reason_to_look_for is not None:
+                    event.resource_status_reason.should.equal(reason_to_look_for)
+    except StopIteration:
+        assert False, "Too many stack events"
+
+    list(stack_events_to_look_for).should.be.empty
+

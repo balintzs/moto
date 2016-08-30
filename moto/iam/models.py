@@ -318,6 +318,10 @@ class IAMBackend(BaseBackend):
             if name == cert.cert_name:
                 return cert
 
+        raise IAMNotFoundException(
+            "The Server Certificate with name {0} cannot be "
+            "found.".format(name))
+
     def create_group(self, group_name, path='/'):
         if group_name in self.groups:
             raise IAMConflictException("Group {0} already exists".format(group_name))
@@ -363,6 +367,15 @@ class IAMBackend(BaseBackend):
             raise IAMNotFoundException("User {0} not found".format(user_name))
 
         return user
+
+    def list_users(self, path_prefix, marker, max_items):
+        users = None
+        try:
+            users = self.users
+        except KeyError:
+            raise IAMNotFoundException("Users {0}, {1}, {2} not found".format(path_prefix, marker, max_items))
+
+        return users
 
     def create_login_profile(self, user_name, password):
         # This does not currently deal with PasswordPolicyViolation.

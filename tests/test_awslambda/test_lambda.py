@@ -33,6 +33,43 @@ def test_list_functions():
 
 
 @mock_lambda
+@mock_s3
+@freeze_time('2015-01-01 00:00:00')
+def test_invoke_function():
+    conn = boto3.client('lambda', 'us-west-2')
+
+    zip_content = get_test_zip_file()
+    conn.create_function(
+        FunctionName='testFunction',
+        Runtime='python2.7',
+        Role='test-iam-role',
+        Handler='lambda_function.handler',
+        Code={
+            'ZipFile': zip_content,
+        },
+        Description='test lambda function',
+        Timeout=3,
+        MemorySize=128,
+        Publish=True,
+    )
+
+    success_result = conn.invoke(FunctionName='testFunction', InvocationType='Event', Payload='{}')
+    success_result["StatusCode"].should.equal(200)
+
+    conn.invoke.when.called_with(
+        FunctionName='notAFunction',
+        InvocationType='Event',
+        Payload='{}'
+    ).should.throw(botocore.client.ClientError)
+
+    success_result = conn.invoke(FunctionName='testFunction', InvocationType='RequestResponse', Payload='{}')
+    success_result["StatusCode"].should.equal(200)
+
+    import base64
+    base64.b64decode(success_result["LogResult"]).decode('utf-8').should.equal("Some log file output...")
+
+
+@mock_lambda
 @freeze_time('2015-01-01 00:00:00')
 def test_create_based_on_s3_with_missing_bucket():
     conn = boto3.client('lambda', 'us-west-2')
@@ -86,6 +123,7 @@ def test_create_function_from_aws_bucket():
             "SubnetIds": ["subnet-123abc"],
         },
     )
+    result['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     result.should.equal({
         'FunctionName': 'testFunction',
         'FunctionArn': 'arn:aws:lambda:123456789012:function:testFunction',
@@ -128,6 +166,7 @@ def test_create_function_from_zipfile():
         MemorySize=128,
         Publish=True,
     )
+    result['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     result.should.equal({
         'FunctionName': 'testFunction',
         'FunctionArn': 'arn:aws:lambda:123456789012:function:testFunction',
@@ -177,6 +216,7 @@ def test_get_function():
     )
 
     result = conn.get_function(FunctionName='testFunction')
+    result['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
 
     result.should.equal({
         "Code": {
@@ -232,6 +272,7 @@ def test_delete_function():
     )
 
     success_result = conn.delete_function(FunctionName='testFunction')
+    success_result['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
     success_result.should.equal({'ResponseMetadata': {'HTTPStatusCode': 204}})
 
     conn.delete_function.when.called_with(FunctionName='testFunctionThatDoesntExist').should.throw(botocore.client.ClientError)
@@ -295,7 +336,9 @@ def test_list_create_list_get_delete_list():
     }
     conn.list_functions()['Functions'].should.equal([expected_function_result['Configuration']])
 
-    conn.get_function(FunctionName='testFunction').should.equal(expected_function_result)
+    func = conn.get_function(FunctionName='testFunction')
+    func['ResponseMetadata'].pop('HTTPHeaders', None) # this is hard to match against, so remove it
+    func.should.equal(expected_function_result)
     conn.delete_function(FunctionName='testFunction')
 
     conn.list_functions()['Functions'].should.have.length_of(0)
