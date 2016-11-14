@@ -3,15 +3,15 @@ from __future__ import unicode_literals
 from setuptools import setup, find_packages
 
 install_requires = [
-    "Jinja2",
+    "Jinja2>=2.8",
     "boto>=2.36.0",
-    "flask",
     "httpretty==0.8.10",
     "requests",
     "xmltodict",
     "six",
     "werkzeug",
-    "pytz==2015.7",
+    "pytz",
+    "python-dateutil",
     "sure",
     "freezegun"
 ]
@@ -19,6 +19,8 @@ install_requires = [
 extras_require = {
     # No builtin OrderedDict before 2.7
     ':python_version=="2.6"': ['ordereddict'],
+
+    'server': ['flask'],
 }
 
 __version__ = "dev"
