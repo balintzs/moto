@@ -8,6 +8,7 @@ from nose.tools import assert_raises
 
 import boto3
 import boto
+from botocore.exceptions import ClientError
 from boto.exception import EC2ResponseError, JSONResponseError
 import sure  # noqa
 
@@ -37,7 +38,7 @@ def test_create_and_describe_security_group():
     cm.exception.request_id.should_not.be.none
 
     all_groups = conn.get_all_security_groups()
-    all_groups.should.have.length_of(2)  # The default group gets created automatically
+    all_groups.should.have.length_of(3)  # The default group gets created automatically
     group_names = [group.name for group in all_groups]
     set(group_names).should.equal(set(["default", "test security group"]))
 
@@ -57,7 +58,7 @@ def test_create_security_group_without_description_raises_error():
 def test_default_security_group():
     conn = boto.ec2.connect_to_region('us-east-1')
     groups = conn.get_all_security_groups()
-    groups.should.have.length_of(1)
+    groups.should.have.length_of(2)
     groups[0].name.should.equal("default")
 
 
@@ -98,7 +99,7 @@ def test_create_two_security_groups_with_same_name_in_different_vpc():
 
     all_groups = conn.get_all_security_groups()
 
-    all_groups.should.have.length_of(3)
+    all_groups.should.have.length_of(4)
     group_names = [group.name for group in all_groups]
     # The default group is created automatically
     set(group_names).should.equal(set(["default", "test security group"]))
@@ -110,7 +111,7 @@ def test_deleting_security_groups():
     security_group1 = conn.create_security_group('test1', 'test1')
     conn.create_security_group('test2', 'test2')
 
-    conn.get_all_security_groups().should.have.length_of(3)  # We need to include the default security group
+    conn.get_all_security_groups().should.have.length_of(4)
 
     # Deleting a group that doesn't exist should throw an error
     with assert_raises(EC2ResponseError) as cm:
@@ -127,11 +128,11 @@ def test_deleting_security_groups():
     ex.exception.message.should.equal('An error occurred (DryRunOperation) when calling the DeleteSecurityGroup operation: Request would have succeeded, but DryRun flag is set')
 
     conn.delete_security_group('test2')
-    conn.get_all_security_groups().should.have.length_of(2)
+    conn.get_all_security_groups().should.have.length_of(3)
 
     # Delete by group id
     conn.delete_security_group(group_id=security_group1.id)
-    conn.get_all_security_groups().should.have.length_of(1)
+    conn.get_all_security_groups().should.have.length_of(2)
 
 
 @mock_ec2
@@ -267,6 +268,7 @@ def test_authorize_other_group_egress_and_revoke():
     sg01.revoke_egress(IpPermissions=[ip_permission])
     sg01.ip_permissions_egress.should.have.length_of(1)
 
+
 @mock_ec2
 def test_authorize_group_in_vpc():
     conn = boto.connect_ec2('the_key', 'the_secret')
@@ -316,7 +318,7 @@ def test_get_all_security_groups():
     resp[0].id.should.equal(sg1.id)
 
     resp = conn.get_all_security_groups()
-    resp.should.have.length_of(3)  # We need to include the default group here
+    resp.should.have.length_of(4)
 
 
 @mock_ec2
@@ -377,9 +379,159 @@ def test_authorize_all_protocols_with_no_port_specification():
     sg.rules[0].to_port.should.equal(None)
 
 
+@mock_ec2
+def test_sec_group_rule_limit():
+    ec2_conn = boto.connect_ec2()
+    sg = ec2_conn.create_security_group('test', 'test')
+    other_sg = ec2_conn.create_security_group('test_2', 'test_other')
+
+    # INGRESS
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group(
+            group_id=sg.id, ip_protocol='-1',
+            cidr_ip=['{0}.0.0.0/0'.format(i) for i in range(110)])
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+
+    sg.rules.should.be.empty
+    # authorize a rule targeting a different sec group (because this count too)
+    success = ec2_conn.authorize_security_group(
+        group_id=sg.id, ip_protocol='-1',
+        src_security_group_group_id=other_sg.id)
+    success.should.be.true
+    # fill the rules up the limit
+    success = ec2_conn.authorize_security_group(
+        group_id=sg.id, ip_protocol='-1',
+        cidr_ip=['{0}.0.0.0/0'.format(i) for i in range(99)])
+    success.should.be.true
+    # verify that we cannot authorize past the limit for a CIDR IP
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group(
+            group_id=sg.id, ip_protocol='-1', cidr_ip=['100.0.0.0/0'])
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+    # verify that we cannot authorize past the limit for a different sec group
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group(
+            group_id=sg.id, ip_protocol='-1',
+            src_security_group_group_id=other_sg.id)
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+
+    # EGRESS
+    # authorize a rule targeting a different sec group (because this count too)
+    ec2_conn.authorize_security_group_egress(
+        group_id=sg.id, ip_protocol='-1',
+        src_group_id=other_sg.id)
+    # fill the rules up the limit
+    # remember that by default, when created a sec group contains 1 egress rule
+    # so our other_sg rule + 98 CIDR IP rules + 1 by default == 100 the limit
+    for i in range(98):
+        ec2_conn.authorize_security_group_egress(
+            group_id=sg.id, ip_protocol='-1',
+            cidr_ip='{0}.0.0.0/0'.format(i))
+    # verify that we cannot authorize past the limit for a CIDR IP
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group_egress(
+            group_id=sg.id, ip_protocol='-1',
+            cidr_ip='101.0.0.0/0')
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+    # verify that we cannot authorize past the limit for a different sec group
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group_egress(
+            group_id=sg.id, ip_protocol='-1',
+            src_group_id=other_sg.id)
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+
+
+@mock_ec2
+def test_sec_group_rule_limit_vpc():
+    ec2_conn = boto.connect_ec2()
+    vpc_conn = boto.connect_vpc()
+
+    vpc = vpc_conn.create_vpc('10.0.0.0/8')
+
+    sg = ec2_conn.create_security_group('test', 'test', vpc_id=vpc.id)
+    other_sg = ec2_conn.create_security_group('test_2', 'test', vpc_id=vpc.id)
+
+    # INGRESS
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group(
+            group_id=sg.id, ip_protocol='-1',
+            cidr_ip=['{0}.0.0.0/0'.format(i) for i in range(110)])
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+
+    sg.rules.should.be.empty
+    # authorize a rule targeting a different sec group (because this count too)
+    success = ec2_conn.authorize_security_group(
+        group_id=sg.id, ip_protocol='-1',
+        src_security_group_group_id=other_sg.id)
+    success.should.be.true
+    # fill the rules up the limit
+    success = ec2_conn.authorize_security_group(
+        group_id=sg.id, ip_protocol='-1',
+        cidr_ip=['{0}.0.0.0/0'.format(i) for i in range(49)])
+    # verify that we cannot authorize past the limit for a CIDR IP
+    success.should.be.true
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group(
+            group_id=sg.id, ip_protocol='-1', cidr_ip=['100.0.0.0/0'])
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+    # verify that we cannot authorize past the limit for a different sec group
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group(
+            group_id=sg.id, ip_protocol='-1',
+            src_security_group_group_id=other_sg.id)
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+
+    # EGRESS
+    # authorize a rule targeting a different sec group (because this count too)
+    ec2_conn.authorize_security_group_egress(
+        group_id=sg.id, ip_protocol='-1',
+        src_group_id=other_sg.id)
+    # fill the rules up the limit
+    # remember that by default, when created a sec group contains 1 egress rule
+    # so our other_sg rule + 48 CIDR IP rules + 1 by default == 50 the limit
+    for i in range(48):
+        ec2_conn.authorize_security_group_egress(
+            group_id=sg.id, ip_protocol='-1',
+            cidr_ip='{0}.0.0.0/0'.format(i))
+    # verify that we cannot authorize past the limit for a CIDR IP
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group_egress(
+            group_id=sg.id, ip_protocol='-1',
+            cidr_ip='50.0.0.0/0')
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+    # verify that we cannot authorize past the limit for a different sec group
+    with assert_raises(EC2ResponseError) as cm:
+        ec2_conn.authorize_security_group_egress(
+            group_id=sg.id, ip_protocol='-1',
+            src_group_id=other_sg.id)
+    cm.exception.error_code.should.equal('RulesPerSecurityGroupLimitExceeded')
+
+
+
+
 '''
 Boto3
 '''
+
+@mock_ec2
+def test_add_same_rule_twice_throws_error():
+    ec2 = boto3.resource('ec2', region_name='us-west-1')
+
+    vpc = ec2.create_vpc(CidrBlock='10.0.0.0/16')
+    sg = ec2.create_security_group(GroupName='sg1', Description='Test security group sg1', VpcId=vpc.id)
+
+    ip_permissions = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 27017,
+            'ToPort': 27017,
+            'IpRanges': [{"CidrIp": "1.2.3.4/32"}]
+        },
+    ]
+    sg.authorize_ingress(IpPermissions=ip_permissions)
+
+    with assert_raises(ClientError) as ex:
+        sg.authorize_ingress(IpPermissions=ip_permissions)
 
 
 @mock_ec2
@@ -421,8 +573,8 @@ def test_authorize_and_revoke_in_bulk():
         },
         {
             'IpProtocol': 'tcp',
-            'FromPort': 27017,
-            'ToPort': 27017,
+            'FromPort': 27018,
+            'ToPort': 27018,
             'UserIdGroupPairs': [{'GroupId': sg02.id, 'UserId': sg02.owner_id}],
             'IpRanges': []
         },
@@ -457,3 +609,16 @@ def test_authorize_and_revoke_in_bulk():
     sg01.ip_permissions_egress.should.have.length_of(1)
     for ip_permission in expected_ip_permissions:
         sg01.ip_permissions_egress.shouldnt.contain(ip_permission)
+
+@mock_ec2
+def test_get_all_security_groups_filter_with_same_vpc_id():
+    conn = boto.connect_ec2('the_key', 'the_secret')
+    vpc_id = 'vpc-5300000c'
+    security_group = conn.create_security_group('test1', 'test1', vpc_id=vpc_id)
+    security_group2 = conn.create_security_group('test2', 'test2', vpc_id=vpc_id)
+
+    security_group.vpc_id.should.equal(vpc_id)
+    security_group2.vpc_id.should.equal(vpc_id)
+
+    security_groups = conn.get_all_security_groups(group_ids=[security_group.id], filters={'vpc-id': [vpc_id]})
+    security_groups.should.have.length_of(1)

@@ -113,6 +113,7 @@ def create_backend_app(service):
             endpoint=endpoint,
             methods=HTTP_METHODS,
             view_func=convert_flask_to_httpretty_response(handler),
+            strict_slashes=False,
         )
 
     backend_app.test_client_class = AWSTestHelper
@@ -136,6 +137,12 @@ def main(argv=sys.argv[1:]):
         '-p', '--port', type=int,
         help='Port number to use for connection',
         default=5000)
+    parser.add_argument(
+        '-r', '--reload',
+        action='store_true',
+        help='Reload server on a file change',
+        default=False
+    )
 
     args = parser.parse_args(argv)
 
@@ -143,7 +150,8 @@ def main(argv=sys.argv[1:]):
     main_app = DomainDispatcherApplication(create_backend_app, service=args.service)
     main_app.debug = True
 
-    run_simple(args.host, args.port, main_app, threaded=True)
+    run_simple(args.host, args.port, main_app, threaded=True, use_reloader=args.reload)
+
 
 if __name__ == '__main__':
     main()

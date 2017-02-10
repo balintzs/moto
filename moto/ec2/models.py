@@ -58,6 +58,7 @@ from .exceptions import (
     InvalidVpnGatewayIdError,
     InvalidVpnConnectionIdError,
     InvalidCustomerGatewayIdError,
+    RulesPerSecurityGroupLimitExceededError,
 )
 from .utils import (
     EC2_RESOURCE_TO_PREFIX,
@@ -917,7 +918,7 @@ class Ami(TaggedEC2Resource):
         self.architecture = None
         self.kernel_id = None
         self.platform = None
-        self.creation_date = datetime.utcnow().isoformat()
+        self.creation_date = utc_date_and_time()
 
         if instance:
             self.instance = instance
@@ -1086,33 +1087,36 @@ class Zone(object):
 
 class RegionsAndZonesBackend(object):
     regions = [
-        Region("eu-west-1", "ec2.eu-west-1.amazonaws.com"),
-        Region("sa-east-1", "ec2.sa-east-1.amazonaws.com"),
-        Region("us-east-1", "ec2.us-east-1.amazonaws.com"),
         Region("ap-northeast-1", "ec2.ap-northeast-1.amazonaws.com"),
-        Region("us-west-2", "ec2.us-west-2.amazonaws.com"),
-        Region("us-west-1", "ec2.us-west-1.amazonaws.com"),
+        Region("ap-northeast-2", "ec2.ap-northeast-2.amazonaws.com"),
+        Region("ap-south-1", "ec2.ap-south-1.amazonaws.com"),
         Region("ap-southeast-1", "ec2.ap-southeast-1.amazonaws.com"),
         Region("ap-southeast-2", "ec2.ap-southeast-2.amazonaws.com"),
+        Region("ca-central-1", "ec2.ca-central-1.amazonaws.com.cn"),
+        Region("cn-north-1", "ec2.cn-north-1.amazonaws.com.cn"),
+        Region("eu-central-1", "ec2.eu-central-1.amazonaws.com"),
+        Region("eu-west-1", "ec2.eu-west-1.amazonaws.com"),
+        Region("eu-west-2", "ec2.eu-west-2.amazonaws.com"),
+        Region("sa-east-1", "ec2.sa-east-1.amazonaws.com"),
+        Region("us-east-1", "ec2.us-east-1.amazonaws.com"),
+        Region("us-east-2", "ec2.us-east-2.amazonaws.com"),
+        Region("us-gov-west-1", "ec2.us-gov-west-1.amazonaws.com"),
+        Region("us-west-1", "ec2.us-west-1.amazonaws.com"),
+        Region("us-west-2", "ec2.us-west-2.amazonaws.com"),
     ]
 
-    # TODO: cleanup. For now, pretend everything is us-east-1. 'merica.
-    zones = [
-        Zone("us-east-1a", "us-east-1"),
-        Zone("us-east-1b", "us-east-1"),
-        Zone("us-east-1c", "us-east-1"),
-        Zone("us-east-1d", "us-east-1"),
-        Zone("us-east-1e", "us-east-1"),
-    ]
+    zones = dict(
+        (region, [Zone(region + c, region) for c in 'abc'])
+        for region in [r.name for r in regions])
 
     def describe_regions(self):
         return self.regions
 
     def describe_availability_zones(self):
-        return self.zones
+        return self.zones[self.region_name]
 
     def get_zone_by_name(self, name):
-        for zone in self.zones:
+        for zone in self.zones[self.region_name]:
             if zone.name == name:
                 return zone
 
@@ -1254,6 +1258,25 @@ class SecurityGroup(TaggedEC2Resource):
             return self.id
         raise UnformattedGetAttTemplateException()
 
+    def add_ingress_rule(self, rule):
+        if rule in self.ingress_rules:
+            raise InvalidParameterValueError('security_group')
+        else:
+            self.ingress_rules.append(rule)
+
+    def add_egress_rule(self, rule):
+        self.egress_rules.append(rule)
+
+    def get_number_of_ingress_rules(self):
+        return sum(
+            len(rule.ip_ranges) + len(rule.source_groups)
+            for rule in self.ingress_rules)
+
+    def get_number_of_egress_rules(self):
+        return sum(
+            len(rule.ip_ranges) + len(rule.source_groups)
+            for rule in self.egress_rules)
+
 
 class SecurityGroupBackend(object):
 
@@ -1286,10 +1309,12 @@ class SecurityGroupBackend(object):
 
         if group_ids or groupnames or filters:
             for group in all_groups:
-                if ((group_ids and group.id in group_ids) or
-                        (groupnames and group.name in groupnames) or
-                        (filters and group.matches_filters(filters))):
-                    groups.append(group)
+                if ((group_ids and not group.id in group_ids) or
+                        (groupnames and not group.name in groupnames)):
+                    continue
+                if filters and not group.matches_filters(filters):
+                    continue
+                groups.append(group)
         else:
             groups = all_groups
 
@@ -1350,6 +1375,10 @@ class SecurityGroupBackend(object):
                 if not is_valid_cidr(cidr):
                     raise InvalidCIDRSubnetError(cidr=cidr)
 
+        self._verify_group_will_respect_rule_count_limit(
+            group, group.get_number_of_ingress_rules(),
+            ip_ranges, source_group_names, source_group_ids)
+
         source_group_names = source_group_names if source_group_names else []
         source_group_ids = source_group_ids if source_group_ids else []
 
@@ -1366,7 +1395,7 @@ class SecurityGroupBackend(object):
                 source_groups.append(source_group)
 
         security_rule = SecurityRule(ip_protocol, from_port, to_port, ip_ranges, source_groups)
-        group.ingress_rules.append(security_rule)
+        group.add_ingress_rule(security_rule)
 
     def revoke_security_group_ingress(self,
                                       group_name_or_id,
@@ -1415,6 +1444,10 @@ class SecurityGroupBackend(object):
                 if not is_valid_cidr(cidr):
                     raise InvalidCIDRSubnetError(cidr=cidr)
 
+        self._verify_group_will_respect_rule_count_limit(
+            group, group.get_number_of_egress_rules(),
+            ip_ranges, source_group_names, source_group_ids)
+
         source_group_names = source_group_names if source_group_names else []
         source_group_ids = source_group_ids if source_group_ids else []
 
@@ -1431,7 +1464,7 @@ class SecurityGroupBackend(object):
                 source_groups.append(source_group)
 
         security_rule = SecurityRule(ip_protocol, from_port, to_port, ip_ranges, source_groups)
-        group.egress_rules.append(security_rule)
+        group.add_egress_rule(security_rule)
 
     def revoke_security_group_egress(self,
                                      group_name_or_id,
@@ -1461,6 +1494,20 @@ class SecurityGroupBackend(object):
             group.egress_rules.remove(security_rule)
             return security_rule
         raise InvalidPermissionNotFoundError()
+
+    def _verify_group_will_respect_rule_count_limit(
+            self, group, current_rule_nb,
+            ip_ranges, source_group_names=None, source_group_ids=None):
+        max_nb_rules = 50 if group.vpc_id else 100
+        future_group_nb_rules = current_rule_nb
+        if ip_ranges:
+            future_group_nb_rules += len(ip_ranges)
+        if source_group_ids:
+            future_group_nb_rules += len(source_group_ids)
+        if source_group_names:
+            future_group_nb_rules += len(source_group_names)
+        if future_group_nb_rules > max_nb_rules:
+            raise RulesPerSecurityGroupLimitExceededError
 
 
 class SecurityGroupIngress(object):
@@ -1767,12 +1814,13 @@ class EBSBackend(object):
 
 
 class VPC(TaggedEC2Resource):
-    def __init__(self, ec2_backend, vpc_id, cidr_block, is_default):
+    def __init__(self, ec2_backend, vpc_id, cidr_block, is_default, instance_tenancy='default'):
         self.ec2_backend = ec2_backend
         self.id = vpc_id
         self.cidr_block = cidr_block
         self.dhcp_options = None
         self.state = 'available'
+        self.instance_tenancy = instance_tenancy
         self.is_default = 'true' if is_default else 'false'
         self.enable_dns_support = 'true'
         # This attribute is set to 'true' only for default VPCs
@@ -1786,6 +1834,7 @@ class VPC(TaggedEC2Resource):
         ec2_backend = ec2_backends[region_name]
         vpc = ec2_backend.create_vpc(
             cidr_block=properties['CidrBlock'],
+            instance_tenancy=properties.get('InstanceTenancy', 'default')
         )
         return vpc
 
@@ -1794,15 +1843,17 @@ class VPC(TaggedEC2Resource):
         return self.id
 
     def get_filter_value(self, filter_name):
-        if filter_name == 'vpc-id':
+        if filter_name in ('vpc-id', 'vpcId'):
             return self.id
-        elif filter_name == 'cidr':
+        elif filter_name in ('cidr', 'cidr-block', 'cidrBlock'):
             return self.cidr_block
-        elif filter_name == 'isDefault':
+        elif filter_name in ('instance_tenancy', 'InstanceTenancy'):
+            return self.instance_tenancy
+        elif filter_name in ('is-default', 'isDefault'):
             return self.is_default
         elif filter_name == 'state':
             return self.state
-        elif filter_name == 'dhcp-options-id':
+        elif filter_name in ('dhcp-options-id', 'dhcpOptionsId'):
             if not self.dhcp_options:
                 return None
 
@@ -1821,9 +1872,9 @@ class VPCBackend(object):
         self.vpcs = {}
         super(VPCBackend, self).__init__()
 
-    def create_vpc(self, cidr_block):
+    def create_vpc(self, cidr_block, instance_tenancy='default'):
         vpc_id = random_vpc_id()
-        vpc = VPC(self, vpc_id, cidr_block, len(self.vpcs) == 0)
+        vpc = VPC(self, vpc_id, cidr_block, len(self.vpcs) == 0, instance_tenancy)
         self.vpcs[vpc_id] = vpc
 
         # AWS creates a default main route table and security group.
@@ -2013,12 +2064,7 @@ class Subnet(TaggedEC2Resource):
 
     @property
     def availability_zone(self):
-        if self._availability_zone is None:
-            # This could probably be smarter, but there doesn't appear to be a
-            # way to pull AZs for a region in boto
-            return self.ec2_backend.region_name + "a"
-        else:
-            return self._availability_zone
+        return self._availability_zone
 
     @property
     def physical_resource_id(self):
@@ -2043,11 +2089,11 @@ class Subnet(TaggedEC2Resource):
         """
         if filter_name in ('cidr', 'cidrBlock', 'cidr-block'):
             return self.cidr_block
-        elif filter_name == 'vpc-id':
+        elif filter_name in ('vpc-id', 'vpcId'):
             return self.vpc_id
         elif filter_name == 'subnet-id':
             return self.id
-        elif filter_name == 'availabilityZone':
+        elif filter_name in ('availabilityZone', 'availability-zone'):
             return self.availability_zone
         elif filter_name in ('defaultForAz', 'default-for-az'):
             return self.default_for_az
@@ -2068,37 +2114,49 @@ class Subnet(TaggedEC2Resource):
 
 class SubnetBackend(object):
     def __init__(self):
-        self.subnets = {}
+        # maps availability zone to dict of (subnet_id, subnet)
+        self.subnets = defaultdict(dict)
         super(SubnetBackend, self).__init__()
 
     def get_subnet(self, subnet_id):
-        subnet = self.subnets.get(subnet_id, None)
-        if not subnet:
-            raise InvalidSubnetIdError(subnet_id)
-        return subnet
+        for subnets in self.subnets.values():
+            if subnet_id in subnets:
+                return subnets[subnet_id]
+        raise InvalidSubnetIdError(subnet_id)
 
-    def create_subnet(self, vpc_id, cidr_block, availability_zone=None):
+    def create_subnet(self, vpc_id, cidr_block, availability_zone):
         subnet_id = random_subnet_id()
         vpc = self.get_vpc(vpc_id)  # Validate VPC exists
-        default_for_az = vpc.is_default
-        map_public_ip_on_launch = vpc.is_default
-        subnet = Subnet(self, subnet_id, vpc_id, cidr_block, availability_zone, default_for_az, map_public_ip_on_launch)
+
+        # if this is the first subnet for an availability zone,
+        # consider it the default
+        default_for_az = str(availability_zone not in self.subnets).lower()
+        map_public_ip_on_launch = default_for_az
+        subnet = Subnet(self, subnet_id, vpc_id, cidr_block, availability_zone,
+                        default_for_az, map_public_ip_on_launch)
 
         # AWS associates a new subnet with the default Network ACL
         self.associate_default_network_acl_with_subnet(subnet_id)
-        self.subnets[subnet_id] = subnet
+        self.subnets[availability_zone][subnet_id] = subnet
         return subnet
 
-    def get_all_subnets(self, filters=None):
-        subnets = self.subnets.values()
-
+    def get_all_subnets(self, subnet_ids=None, filters=None):
+        subnets = []
+        if subnet_ids:
+            for subnet_id in subnet_ids:
+                for items in self.subnets.values():
+                    if subnet_id in items:
+                        subnets.append(items[subnet_id])
+        else:
+            for items in self.subnets.values():
+                subnets.extend(items.values())
         return generic_filter(filters, subnets)
 
     def delete_subnet(self, subnet_id):
-        deleted = self.subnets.pop(subnet_id, None)
-        if not deleted:
-            raise InvalidSubnetIdError(subnet_id)
-        return deleted
+        for subnets in self.subnets.values():
+            if subnet_id in subnets:
+                return subnets.pop(subnet_id, None)
+        raise InvalidSubnetIdError(subnet_id)
 
     def modify_subnet_attribute(self, subnet_id, map_public_ip):
         subnet = self.get_subnet(subnet_id)
@@ -3377,6 +3435,29 @@ class EC2Backend(BaseBackend, InstanceBackend, TagBackend, AmiBackend,
         super(EC2Backend, self).__init__()
         self.region_name = region_name
 
+        # Default VPC exists by default, which is the current behavior
+        # of EC2-VPC. See for detail:
+        #
+        #   docs.aws.amazon.com/AmazonVPC/latest/UserGuide/default-vpc.html
+        #
+        if not self.vpcs:
+            vpc = self.create_vpc('172.31.0.0/16')
+        else:
+            # For now this is included for potential
+            # backward-compatibility issues
+            vpc = self.vpcs.values()[0]
+
+        # Create default subnet for each availability zone
+        ip, _ = vpc.cidr_block.split('/')
+        ip = ip.split('.')
+        ip[2] = 0
+
+        for zone in self.describe_availability_zones():
+            az_name = zone.name
+            cidr_block = '.'.join(str(i) for i in ip) + '/20'
+            self.create_subnet(vpc.id, cidr_block, availability_zone=az_name)
+            ip[2] += 16
+
     def reset(self):
         region_name = self.region_name
         self.__dict__ = {}
@@ -3434,5 +3515,5 @@ class EC2Backend(BaseBackend, InstanceBackend, TagBackend, AmiBackend,
         return True
 
 ec2_backends = {}
-for region in boto.ec2.regions():
+for region in RegionsAndZonesBackend.regions:
     ec2_backends[region.name] = EC2Backend(region.name)

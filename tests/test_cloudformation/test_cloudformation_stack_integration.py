@@ -27,6 +27,7 @@ from moto import (
     mock_kms,
     mock_lambda,
     mock_rds,
+    mock_rds2,
     mock_redshift,
     mock_route53,
     mock_sns,
@@ -36,6 +37,7 @@ from moto import (
 from .fixtures import (
     ec2_classic_eip,
     fn_join,
+    rds_mysql_with_db_parameter_group,
     rds_mysql_with_read_replica,
     redshift,
     route53_ec2_instance_with_public_ip,
@@ -661,13 +663,14 @@ def test_vpc_single_instance_in_subnet():
     )
 
     vpc_conn = boto.vpc.connect_to_region("us-west-1")
-    vpc = vpc_conn.get_all_vpcs()[0]
+
+    vpc = vpc_conn.get_all_vpcs(filters={'cidrBlock': '10.0.0.0/16'})[0]
     vpc.cidr_block.should.equal("10.0.0.0/16")
 
     # Add this once we implement the endpoint
     # vpc_conn.get_all_internet_gateways().should.have.length_of(1)
 
-    subnet = vpc_conn.get_all_subnets()[0]
+    subnet = vpc_conn.get_all_subnets(filters={'vpcId': vpc.id})[0]
     subnet.vpc_id.should.equal(vpc.id)
 
     ec2_conn = boto.ec2.connect_to_region("us-west-1")
@@ -691,6 +694,44 @@ def test_vpc_single_instance_in_subnet():
 
     eip_resource = [resource for resource in resources if resource.resource_type == 'AWS::EC2::EIP'][0]
     eip_resource.physical_resource_id.should.equal(eip.allocation_id)
+
+@mock_cloudformation()
+@mock_ec2()
+@mock_rds2()
+def test_rds_db_parameter_groups():
+    ec2_conn = boto.ec2.connect_to_region("us-west-1")
+    ec2_conn.create_security_group('application', 'Our Application Group')
+
+    template_json = json.dumps(rds_mysql_with_db_parameter_group.template)
+    conn = boto.cloudformation.connect_to_region("us-west-1")
+    conn.create_stack(
+        "test_stack",
+        template_body=template_json,
+        parameters=[
+            ("DBInstanceIdentifier", "master_db"),
+            ("DBName", "my_db"),
+            ("DBUser", "my_user"),
+            ("DBPassword", "my_password"),
+            ("DBAllocatedStorage", "20"),
+            ("DBInstanceClass", "db.m1.medium"),
+            ("EC2SecurityGroup", "application"),
+            ("MultiAZ", "true"),
+        ],
+    )
+
+    rds_conn = boto3.client('rds', region_name="us-west-1")
+
+    db_parameter_groups = rds_conn.describe_db_parameter_groups()
+    len(db_parameter_groups['DBParameterGroups']).should.equal(1)
+    db_parameter_group_name = db_parameter_groups['DBParameterGroups'][0]['DBParameterGroupName']
+
+    found_cloudformation_set_parameter = False
+    for db_parameter in rds_conn.describe_db_parameters(DBParameterGroupName=db_parameter_group_name)['Parameters']:
+        if db_parameter['ParameterName'] == 'BACKLOG_QUEUE_LIMIT' and db_parameter['ParameterValue'] == '2048':
+            found_cloudformation_set_parameter = True
+
+    found_cloudformation_set_parameter.should.equal(True)
+
 
 
 @mock_cloudformation()
@@ -1129,6 +1170,8 @@ def test_route53_roundrobin():
     zones = route53_conn.get_all_hosted_zones()['ListHostedZonesResponse']['HostedZones']
     list(zones).should.have.length_of(1)
     zone_id = zones[0]['Id']
+    zone_id = zone_id.split('/')
+    zone_id = zone_id[2]
 
     rrsets = route53_conn.get_all_rrsets(zone_id)
     rrsets.hosted_zone_id.should.equal(zone_id)
@@ -1174,6 +1217,9 @@ def test_route53_ec2_instance_with_public_ip():
     zones = route53_conn.get_all_hosted_zones()['ListHostedZonesResponse']['HostedZones']
     list(zones).should.have.length_of(1)
     zone_id = zones[0]['Id']
+    zone_id = zone_id.split('/')
+    zone_id = zone_id[2]
+
 
     rrsets = route53_conn.get_all_rrsets(zone_id)
     rrsets.should.have.length_of(1)
@@ -1214,6 +1260,8 @@ def test_route53_associate_health_check():
     zones = route53_conn.get_all_hosted_zones()['ListHostedZonesResponse']['HostedZones']
     list(zones).should.have.length_of(1)
     zone_id = zones[0]['Id']
+    zone_id = zone_id.split('/')
+    zone_id = zone_id[2]
 
     rrsets = route53_conn.get_all_rrsets(zone_id)
     rrsets.should.have.length_of(1)
@@ -1237,6 +1285,8 @@ def test_route53_with_update():
     zones = route53_conn.get_all_hosted_zones()['ListHostedZonesResponse']['HostedZones']
     list(zones).should.have.length_of(1)
     zone_id = zones[0]['Id']
+    zone_id = zone_id.split('/')
+    zone_id = zone_id[2]
 
     rrsets = route53_conn.get_all_rrsets(zone_id)
     rrsets.should.have.length_of(1)
@@ -1254,6 +1304,8 @@ def test_route53_with_update():
     zones = route53_conn.get_all_hosted_zones()['ListHostedZonesResponse']['HostedZones']
     list(zones).should.have.length_of(1)
     zone_id = zones[0]['Id']
+    zone_id = zone_id.split('/')
+    zone_id = zone_id[2]
 
     rrsets = route53_conn.get_all_rrsets(zone_id)
     rrsets.should.have.length_of(1)
@@ -1355,7 +1407,7 @@ def test_vpc_gateway_attachment_creation_should_attach_itself_to_vpc():
     )
 
     vpc_conn = boto.vpc.connect_to_region("us-west-1")
-    vpc = vpc_conn.get_all_vpcs()[0]
+    vpc = vpc_conn.get_all_vpcs(filters={'cidrBlock': '10.0.0.0/16'})[0]
     igws = vpc_conn.get_all_internet_gateways(
         filters={'attachment.vpc-id': vpc.id}
     )
