@@ -2,9 +2,59 @@ from __future__ import unicode_literals
 
 from moto.core.responses import BaseResponse
 from .models import autoscaling_backends
+import json
 
 
 class AutoScalingResponse(BaseResponse):
+
+    class AnyScaleFrontendService(BaseResponse):
+        """
+        This class contains handlers for application-autoscaling
+        The scope of these functions is an instance of AutoScalingResponse
+
+        Protocol: JSON
+        """
+
+        @property
+        def autoscaling_backend(self):
+            return autoscaling_backends[self.region].aas_backend
+
+        @property
+        def request_params(self):
+            if not hasattr(self, "_decoded_request_params"):
+                try:
+                    self._decoded_request_params = json.loads(self.body.decode())
+                except ValueError:
+                    self._decoded_request_params = {}
+            return self._decoded_request_params
+
+        def put_scaling_policy(self):
+            return json.dumps(
+                self.autoscaling_backend.put_scaling_policy(
+                    **self.request_params
+                ) or {}
+            )
+
+        def describe_scaling_policies(self):
+            return json.dumps(
+                self.autoscaling_backend.describe_scaling_policies(
+                    **self.request_params
+                ) or {}
+            )
+
+        def deregister_scalable_target(self):
+            return json.dumps(
+                self.autoscaling_backend.deregister_scalable_target(
+                    **self.request_params
+                ) or {}
+            )
+
+        def register_scalable_target(self):
+            return json.dumps(
+                self.autoscaling_backend.register_scalable_target(
+                    **self.request_params
+                ) or {}
+            )
 
     @property
     def autoscaling_backend(self):
