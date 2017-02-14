@@ -352,7 +352,7 @@ class ApplicationAutoScalingBackend(BaseBackend):
                 ),
                 self.policies.values()
             ),
-            "PolicyName",
+            lambda sp: sp.PolicyName,
             kwargs
         )
         return dict(
@@ -382,7 +382,7 @@ class ApplicationAutoScalingBackend(BaseBackend):
                 ),
                 self.scalable_targets.values()
             ),
-            "ResourceId",
+            lambda st: st.ResourceId,
             kwargs
         )
         return dict(
