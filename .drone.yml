@@ -4,9 +4,7 @@ build:
     commands:
       - apk add --update bash make ca-certificates
       - pip install -r requirements-dev.txt
-      - pip install coveralls
       - make test
-      - coveralls
 
 publish:
   pypi:
