@@ -16,4 +16,5 @@ publish:
     distributions:
       - bdist_wheel
     when:
-      event: tag
+      event: push
+      branch: master
