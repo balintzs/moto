@@ -107,6 +107,8 @@ class BaseResponse(_TemplateEnvironmentMixin):
         return cls()._dispatch(*args, **kwargs)
 
     def setup_class(self, request, full_url, headers):
+        self.request = request
+
         querystring = {}
         if hasattr(request, 'body'):
             # Boto
@@ -167,29 +169,40 @@ class BaseResponse(_TemplateEnvironmentMixin):
         return self.call_action()
 
     def call_action(self):
-        headers = self.response_headers
         action = self.querystring.get('Action', [""])[0]
+        target_path = None
         if not action:  # Some services use a header for the action
             # Headers are case-insensitive. Probably a better way to do this.
             match = self.headers.get('x-amz-target') or self.headers.get('X-Amz-Target')
             if match:
-                action = match.split(".")[-1]
+                target_path = match.split(".")
+                action = target_path[-1]
+                target_path = target_path[:-1]
 
         action = camelcase_to_underscores(action)
-        method_names = method_names_from_class(self.__class__)
+        target = self.__class__
+        if target_path:
+            for child_class in target_path:
+                if hasattr(target, child_class):
+                    target = getattr(target, child_class)
+                else:
+                    break
+        method_names = method_names_from_class(target)
         if action in method_names:
-            method = getattr(self, action)
             try:
-                response = method()
+                if target is self.__class__:
+                    response = getattr(self, action)()
+                else:
+                    return target.dispatch(self.request, self.uri, self.response_headers)
             except HTTPException as http_error:
                 response = http_error.description, dict(status=http_error.code)
             if isinstance(response, six.string_types):
-                return 200, headers, response
+                return 200, self.response_headers, response
             else:
                 body, new_headers = response
                 status = new_headers.get('status', 200)
-                headers.update(new_headers)
-                return status, headers, body
+                self.response_headers.update(new_headers)
+                return status, self.response_headers, body
         raise NotImplementedError("The {0} action has not been implemented".format(action))
 
     def _get_param(self, param_name, if_none=None):

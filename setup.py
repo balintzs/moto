@@ -23,11 +23,9 @@ extras_require = {
     'server': ['flask'],
 }
 
-__version__ = "dev"
-
 setup(
     name='moto',
-    version=__version__,
+    version='0.4.31',
     description='A library that allows your python tests to easily'
                 ' mock out the boto library',
     author='Steve Pulec',

@@ -334,7 +334,7 @@ class EC2ContainerServiceBackend(BaseBackend):
         else:
             raise Exception("{0} is not a cluster".format(cluster_name))
 
-    def register_task_definition(self, family, container_definitions, volumes, task_role_arn):
+    def register_task_definition(self, family, container_definitions, volumes, task_role_arn=None):
         if family in self.task_definitions:
             revision = len(self.task_definitions[family]) + 1
         else:

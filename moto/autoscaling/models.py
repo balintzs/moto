@@ -265,20 +265,149 @@ class FakeAutoScalingGroup(object):
             self.instance_states = self.instance_states[count_to_remove:]
 
 
+class FakeScalableTarget(object):
+
+    def __init__(self, ServiceNamespace, ResourceId, ScalableDimension, MinCapacity, MaxCapacity, RoleARN):
+        self.update(ServiceNamespace, ResourceId, ScalableDimension, MinCapacity, MaxCapacity, RoleARN)
+
+    def update(self, ServiceNamespace, ResourceId, ScalableDimension, MinCapacity=None, MaxCapacity=None, RoleARN=None):
+        self.ServiceNamespace = ServiceNamespace
+        self.ResourceId = ResourceId
+        self.ScalableDimension = ScalableDimension
+        if MinCapacity is not None:
+            self.MinCapacity = MinCapacity
+        if MaxCapacity is not None:
+            self.MaxCapacity = MaxCapacity
+        self.RoleARN = RoleARN or self.RoleARN
+
+
+class FakeApplicationScalingPolicy(object):
+
+    def __init__(self, PolicyName, ServiceNamespace, ResourceId, ScalableDimension, PolicyType, StepScalingPolicyConfiguration):
+        self.update(PolicyName, ServiceNamespace, ResourceId, ScalableDimension, PolicyType, StepScalingPolicyConfiguration)
+        self.Alarms = []
+
+    def update(self, PolicyName, ServiceNamespace, ResourceId, ScalableDimension, PolicyType=None, StepScalingPolicyConfiguration=None):
+        self.PolicyARN = (
+            "arn:aws:autoscaling:us-east-1:012345678910:scalingPolicy:"
+            "6d8972f3-efc8-437c-92d1-6270fEXAMPLE:resource/{ServiceNamespace}/"
+            "{ResourceId}:policyName/{PolicyName}"
+        ).format(
+            ServiceNamespace=ServiceNamespace,
+            ResourceId=ResourceId,
+            PolicyName=PolicyName
+        )
+        self.PolicyName = PolicyName
+        self.ServiceNamespace = ServiceNamespace
+        self.ResourceId = ResourceId
+        self.ScalableDimension = ScalableDimension
+        self.PolicyType = PolicyType or self.PolicyType
+        self.StepScalingPolicyConfiguration = StepScalingPolicyConfiguration or self.StepScalingPolicyConfiguration
+
+
+class ApplicationAutoScalingBackend(BaseBackend):
+
+    def __init__(self):
+        self.scalable_targets = {}
+        self.policies = {}
+
+    def _paginate(self, objects, sort_key, kwargs):
+        objects = sorted(
+            objects,
+            key=sort_key
+        )
+        index = int(kwargs.get("NextToken", 0))
+        count = int(kwargs.get("MaxResults", 50))
+        next_token = index + count
+        return objects[index:next_token], str(next_token)
+
+    def _get_policy_id(self, **kwargs):
+        return "{ServiceNamespace}_{ResourceId}_{ScalableDimension}_{PolicyName}".format(**kwargs)
+
+    def _get_target_id(self, **kwargs):
+        return "{ServiceNamespace}_{ResourceId}_{ScalableDimension}".format(**kwargs)
+
+    def put_scaling_policy(self, **kwargs):
+        policy_id = self._get_policy_id(**kwargs)
+        if policy_id not in self.policies:
+            self.policies[policy_id] = FakeApplicationScalingPolicy(**kwargs)
+        else:
+            self.policies[policy_id].update(**kwargs)
+        return dict(
+            PolicyARN=self.policies[policy_id].PolicyARN
+        )
+
+    def delete_scaling_policy(self, **kwargs):
+        self.policies.pop(self._get_policy_id(**kwargs), None)
+        return {}
+
+    def describe_scaling_policies(self, **kwargs):
+        objects, token = self._paginate(
+            filter(
+                lambda x: (
+                    x.ServiceNamespace == kwargs["ServiceNamespace"] and
+                    (not kwargs.get("PolicyNames") or x.PolicyName in kwargs["PolicyNames"]) and
+                    (not kwargs.get("ResourceId") or x.ResourceId in kwargs["ResourceId"]) and
+                    (not kwargs.get("ScalableDimension") or x.ScalableDimension in kwargs["ScalableDimension"])
+                ),
+                self.policies.values()
+            ),
+            "PolicyName",
+            kwargs
+        )
+        return dict(
+            ScalingPolicies=[sp.__dict__ for sp in objects],
+            NextToken=token
+        )
+
+    def register_scalable_target(self, **kwargs):
+        target_id = self._get_target_id(**kwargs)
+        if target_id not in self.scalable_targets:
+            self.scalable_targets[target_id] = FakeScalableTarget(**kwargs)
+        else:
+            self.scalable_targets[target_id].update(**kwargs)
+        return {}
+
+    def deregister_scalable_target(self, **kwargs):
+        self.scalable_targets.pop(self._get_target_id(**kwargs), None)
+        return {}
+
+    def describe_scalable_targets(self, **kwargs):
+        objects, token = self._paginate(
+            filter(
+                lambda x: (
+                    x.ServiceNamespace == kwargs["ServiceNamespace"] and
+                    (not kwargs.get("ResourceIds") or x.ResourceId in kwargs["ResourceIds"]) and
+                    (not kwargs.get("ScalableDimension") or x.ScalableDimension in kwargs["ScalableDimension"])
+                ),
+                self.scalable_targets.values()
+            ),
+            "ResourceId",
+            kwargs
+        )
+        return dict(
+            ScalableTargets=[st.__dict__ for st in objects],
+            NextToken=token
+        )
+
+
 class AutoScalingBackend(BaseBackend):
 
-    def __init__(self, ec2_backend, elb_backend):
+    def __init__(self, ec2_backend, elb_backend, aas_backend):
         self.autoscaling_groups = {}
         self.launch_configurations = {}
         self.policies = {}
         self.ec2_backend = ec2_backend
         self.elb_backend = elb_backend
+        self.aas_backend = aas_backend
 
     def reset(self):
         ec2_backend = self.ec2_backend
         elb_backend = self.elb_backend
+        aas_backend = self.aas_backend
+        aas_backend.reset()
         self.__dict__ = {}
-        self.__init__(ec2_backend, elb_backend)
+        self.__init__(ec2_backend, elb_backend, aas_backend)
 
     def create_launch_configuration(self, name, image_id, key_name, kernel_id, ramdisk_id,
                                     security_groups, user_data, instance_type,
@@ -493,4 +622,4 @@ class AutoScalingBackend(BaseBackend):
 
 autoscaling_backends = {}
 for region, ec2_backend in ec2_backends.items():
-    autoscaling_backends[region] = AutoScalingBackend(ec2_backend, elb_backends[region])
+    autoscaling_backends[region] = AutoScalingBackend(ec2_backend, elb_backends[region], ApplicationAutoScalingBackend())
