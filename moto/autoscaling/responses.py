@@ -29,32 +29,34 @@ class AutoScalingResponse(BaseResponse):
             return self._decoded_request_params
 
         def put_scaling_policy(self):
-            return json.dumps(
-                self.autoscaling_backend.put_scaling_policy(
-                    **self.request_params
-                ) or {}
-            )
+            return json.dumps(self.autoscaling_backend.put_scaling_policy(
+                **self.request_params
+            ))
+
+        def delete_scaling_policy(self):
+            return json.dumps(self.autoscaling_backend.delete_scaling_policy(
+                **self.request_params
+            ))
 
         def describe_scaling_policies(self):
-            return json.dumps(
-                self.autoscaling_backend.describe_scaling_policies(
-                    **self.request_params
-                ) or {}
-            )
-
-        def deregister_scalable_target(self):
-            return json.dumps(
-                self.autoscaling_backend.deregister_scalable_target(
-                    **self.request_params
-                ) or {}
-            )
+            return json.dumps(self.autoscaling_backend.describe_scaling_policies(
+                **self.request_params
+            ))
 
         def register_scalable_target(self):
-            return json.dumps(
-                self.autoscaling_backend.register_scalable_target(
-                    **self.request_params
-                ) or {}
-            )
+            return json.dumps(self.autoscaling_backend.register_scalable_target(
+                **self.request_params
+            ))
+
+        def deregister_scalable_target(self):
+            return json.dumps(self.autoscaling_backend.deregister_scalable_target(
+                **self.request_params
+            ))
+
+        def describe_scalable_targets(self):
+            return json.dumps(self.autoscaling_backend.describe_scalable_targets(
+                **self.request_params
+            ))
 
     @property
     def autoscaling_backend(self):

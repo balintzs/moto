@@ -1,18 +1,12 @@
 build:
   test:
-    image: python:3-alpine
+    image: python:3.5-alpine
     commands:
       - apk add --update bash make ca-certificates
-      - python setup.py install
-      # - make init test
-      - rm -rf tests
-  versioning:
-    image: python:3-alpine
-    commands:
-      - sed -i '/__version__ =/c\__version__ = "$$TAG"' moto/__init__.py
-      - sed -i '/__version__ =/c\__version__ = "$$TAG"' setup.py
-    when:
-      event: tag
+      - pip install -r requirements-dev.txt
+      - pip install coveralls
+      - make test
+      - coveralls
 
 publish:
   pypi:

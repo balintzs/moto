@@ -340,14 +340,25 @@ class ApplicationAutoScalingBackend(BaseBackend):
         next_token = index + count
         return objects[index:next_token], str(next_token)
 
+    def _get_policy_id(self, **kwargs):
+        return "{ServiceNamespace}_{ResourceId}_{ScalableDimension}_{PolicyName}".format(**kwargs)
+
+    def _get_target_id(self, **kwargs):
+        return "{ServiceNamespace}_{ResourceId}_{ScalableDimension}".format(**kwargs)
+
     def put_scaling_policy(self, **kwargs):
-        if kwargs["PolicyName"] not in self.policies:
-            self.policies[kwargs["PolicyName"]] = FakeApplicationScalingPolicy(**kwargs)
+        policy_id = self._get_policy_id(**kwargs)
+        if policy_id not in self.policies:
+            self.policies[policy_id] = FakeApplicationScalingPolicy(**kwargs)
         else:
-            self.policies[kwargs["PolicyName"]].update(kwargs)
+            self.policies[policy_id].update(**kwargs)
         return dict(
-            PolicyARN=self.policies[kwargs["PolicyName"]].PolicyARN
+            PolicyARN=self.policies[policy_id].PolicyARN
         )
+
+    def delete_scaling_policy(self, **kwargs):
+        self.policies.pop(self._get_policy_id(**kwargs), None)
+        return {}
 
     def describe_scaling_policies(self, **kwargs):
         objects, token = self._paginate(
@@ -356,7 +367,7 @@ class ApplicationAutoScalingBackend(BaseBackend):
                     x.ServiceNamespace == kwargs["ServiceNamespace"] and
                     (not kwargs.get("PolicyNames") or x.PolicyName in kwargs["PolicyNames"]) and
                     (not kwargs.get("ResourceId") or x.ResourceId in kwargs["ResourceId"]) and
-                    (not kwargs.get("ScalableDimension") or x.PolicyName in kwargs["ScalableDimension"])
+                    (not kwargs.get("ScalableDimension") or x.ScalableDimension in kwargs["ScalableDimension"])
                 ),
                 self.policies.values()
             ),
@@ -368,13 +379,35 @@ class ApplicationAutoScalingBackend(BaseBackend):
             NextToken=token
         )
 
-    def deregister_scalable_target(self, **kwargs):
-        self.scalable_targets.pop(kwargs["ResourceId"], None)
+    def register_scalable_target(self, **kwargs):
+        target_id = self._get_target_id(**kwargs)
+        if target_id not in self.scalable_targets:
+            self.scalable_targets[target_id] = FakeScalableTarget(**kwargs)
+        else:
+            self.scalable_targets[target_id].update(**kwargs)
         return {}
 
-    def register_scalable_target(self, **kwargs):
-        self.scalable_targets[kwargs["ResourceId"]] = FakeScalableTarget(**kwargs)
+    def deregister_scalable_target(self, **kwargs):
+        self.scalable_targets.pop(self._get_target_id(**kwargs), None)
         return {}
+
+    def describe_scalable_targets(self, **kwargs):
+        objects, token = self._paginate(
+            filter(
+                lambda x: (
+                    x.ServiceNamespace == kwargs["ServiceNamespace"] and
+                    (not kwargs.get("ResourceIds") or x.ResourceId in kwargs["ResourceIds"]) and
+                    (not kwargs.get("ScalableDimension") or x.ScalableDimension in kwargs["ScalableDimension"])
+                ),
+                self.scalable_targets.values()
+            ),
+            "ResourceId",
+            kwargs
+        )
+        return dict(
+            ScalableTargets=[st.__dict__ for st in objects],
+            NextToken=token
+        )
 
 
 class AutoScalingBackend(BaseBackend):
