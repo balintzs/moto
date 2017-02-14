@@ -268,12 +268,7 @@ class FakeAutoScalingGroup(object):
 class FakeScalableTarget(object):
 
     def __init__(self, ServiceNamespace, ResourceId, ScalableDimension, MinCapacity, MaxCapacity, RoleARN):
-        self.ServiceNamespace = ServiceNamespace
-        self.ResourceId = ResourceId
-        self.ScalableDimension = ScalableDimension
-        self.MinCapacity = MinCapacity
-        self.MaxCapacity = MaxCapacity
-        self.RoleARN = RoleARN
+        self.update(ServiceNamespace, ResourceId, ScalableDimension, MinCapacity, MaxCapacity, RoleARN)
 
     def update(self, ServiceNamespace, ResourceId, ScalableDimension, MinCapacity=None, MaxCapacity=None, RoleARN=None):
         self.ServiceNamespace = ServiceNamespace
@@ -289,21 +284,7 @@ class FakeScalableTarget(object):
 class FakeApplicationScalingPolicy(object):
 
     def __init__(self, PolicyName, ServiceNamespace, ResourceId, ScalableDimension, PolicyType, StepScalingPolicyConfiguration):
-        self.PolicyARN = (
-            "arn:aws:autoscaling:us-east-1:012345678910:scalingPolicy:"
-            "6d8972f3-efc8-437c-92d1-6270fEXAMPLE:resource/{ServiceNamespace}/"
-            "{ResourceId}:policyName/{PolicyName}"
-        ).format(
-            ServiceNamespace=ServiceNamespace,
-            ResourceId=ResourceId,
-            PolicyName=PolicyName
-        )
-        self.PolicyName = PolicyName
-        self.ServiceNamespace = ServiceNamespace
-        self.ResourceId = ResourceId
-        self.ScalableDimension = ScalableDimension
-        self.PolicyType = PolicyType
-        self.StepScalingPolicyConfiguration = StepScalingPolicyConfiguration
+        self.update(PolicyName, ServiceNamespace, ResourceId, ScalableDimension, PolicyType, StepScalingPolicyConfiguration)
         self.Alarms = []
 
     def update(self, PolicyName, ServiceNamespace, ResourceId, ScalableDimension, PolicyType=None, StepScalingPolicyConfiguration=None):
