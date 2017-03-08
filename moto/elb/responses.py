@@ -128,31 +128,31 @@ class ELBResponse(BaseResponse):
         cross_zone = self._get_dict_param("LoadBalancerAttributes.CrossZoneLoadBalancing.")
         if cross_zone:
             attribute = CrossZoneLoadBalancingAttribute()
-            attribute.enabled = cross_zone["enabled"]
+            attribute.enabled = str(cross_zone["enabled"]).lower() == "true"
             self.elb_backend.set_cross_zone_load_balancing_attribute(load_balancer_name, attribute)
 
         access_log = self._get_dict_param("LoadBalancerAttributes.AccessLog.")
         if access_log:
             attribute = AccessLogAttribute()
-            attribute.enabled = access_log["enabled"]
-            if access_log["enabled"]:
+            attribute.enabled = str(access_log["enabled"]).lower() == "true"
+            if attribute.enabled:
                 attribute.s3_bucket_name = access_log['s3_bucket_name']
                 attribute.s3_bucket_prefix = access_log['s3_bucket_prefix']
-                attribute.emit_interval = access_log["emit_interval"]
+                attribute.emit_interval = int(access_log["emit_interval"])
             self.elb_backend.set_access_log_attribute(load_balancer_name, attribute)
 
         connection_draining = self._get_dict_param("LoadBalancerAttributes.ConnectionDraining.")
         if connection_draining:
             attribute = ConnectionDrainingAttribute()
-            attribute.enabled = connection_draining["enabled"]
-            if connection_draining["enabled"]:
-                attribute.timeout = connection_draining["timeout"]
+            attribute.enabled = str(connection_draining["enabled"]).lower() == "true"
+            if attribute.enabled:
+                attribute.timeout = int(connection_draining["timeout"])
             self.elb_backend.set_connection_draining_attribute(load_balancer_name, attribute)
 
         connection_settings = self._get_dict_param("LoadBalancerAttributes.ConnectionSettings.")
         if connection_settings:
             attribute = ConnectionSettingAttribute()
-            attribute.idle_timeout = connection_settings["idle_timeout"]
+            attribute.idle_timeout = int(connection_settings["idle_timeout"])
             self.elb_backend.set_connection_settings_attribute(load_balancer_name, attribute)
 
         template = self.response_template(MODIFY_ATTRIBUTES_TEMPLATE)
