@@ -135,16 +135,18 @@ class ELBResponse(BaseResponse):
         if access_log:
             attribute = AccessLogAttribute()
             attribute.enabled = access_log["enabled"]
-            attribute.s3_bucket_name = access_log['s3_bucket_name']
-            attribute.s3_bucket_prefix = access_log['s3_bucket_prefix']
-            attribute.emit_interval = access_log["emit_interval"]
+            if access_log["enabled"]:
+                attribute.s3_bucket_name = access_log['s3_bucket_name']
+                attribute.s3_bucket_prefix = access_log['s3_bucket_prefix']
+                attribute.emit_interval = access_log["emit_interval"]
             self.elb_backend.set_access_log_attribute(load_balancer_name, attribute)
 
         connection_draining = self._get_dict_param("LoadBalancerAttributes.ConnectionDraining.")
         if connection_draining:
             attribute = ConnectionDrainingAttribute()
             attribute.enabled = connection_draining["enabled"]
-            attribute.timeout = connection_draining["timeout"]
+            if connection_draining["enabled"]:
+                attribute.timeout = connection_draining["timeout"]
             self.elb_backend.set_connection_draining_attribute(load_balancer_name, attribute)
 
         connection_settings = self._get_dict_param("LoadBalancerAttributes.ConnectionSettings.")
