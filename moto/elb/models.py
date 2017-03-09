@@ -177,10 +177,14 @@ class FakeLoadBalancer(object):
 
         connection_draining = ConnectionDrainingAttribute()
         connection_draining.enabled = False
+        connection_draining.timeout = 0
         attributes.connection_draining = connection_draining
 
         access_log = AccessLogAttribute()
         access_log.enabled = False
+        access_log.s3_bucket_name = ""
+        access_log.s3_bucket_prefix = ""
+        access_log.emit_interval = 0
         attributes.access_log = access_log
 
         connection_settings = ConnectionSettingAttribute()
