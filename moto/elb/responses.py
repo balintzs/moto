@@ -129,14 +129,14 @@ class ELBResponse(BaseResponse):
         cross_zone = self._get_dict_param("LoadBalancerAttributes.CrossZoneLoadBalancing.")
         if cross_zone:
             attribute = attributes.cross_zone_load_balancing
-            attribute.enabled = cross_zone["enabled"]
+            attribute.enabled = str(cross_zone["enabled"]).lower() == "true"
             self.elb_backend.set_cross_zone_load_balancing_attribute(load_balancer_name, attribute)
 
         access_log = self._get_dict_param("LoadBalancerAttributes.AccessLog.")
         if access_log:
             attribute = attributes.access_log
-            attribute.enabled = access_log["enabled"]
-            if str(attribute.enabled).lower() == "true":
+            attribute.enabled = str(access_log["enabled"]).lower() == "true"
+            if attribute.enabled:
                 attribute.s3_bucket_name = access_log['s3_bucket_name']
                 attribute.s3_bucket_prefix = access_log['s3_bucket_prefix']
                 attribute.emit_interval = int(access_log["emit_interval"])
@@ -145,8 +145,8 @@ class ELBResponse(BaseResponse):
         connection_draining = self._get_dict_param("LoadBalancerAttributes.ConnectionDraining.")
         if connection_draining:
             attribute = attributes.connection_draining
-            attribute.enabled = connection_draining["enabled"]
-            if str(attribute.enabled).lower() == "true":
+            attribute.enabled = str(connection_draining["enabled"]).lower() == "true"
+            if attribute.enabled:
                 attribute.timeout = int(connection_draining["timeout"])
             self.elb_backend.set_connection_draining_attribute(load_balancer_name, attribute)
 
@@ -563,11 +563,10 @@ DELETE_LOAD_BALANCER_LISTENERS = """<DeleteLoadBalancerListenersResponse xmlns="
 </ResponseMetadata>
 </DeleteLoadBalancerListenersResponse>"""
 
-DESCRIBE_ATTRIBUTES_TEMPLATE = """<DescribeLoadBalancerAttributesResponse  xmlns="http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/">
-  <DescribeLoadBalancerAttributesResult>
+_LOAD_BALANCER_ATTRIBUTES = """
     <LoadBalancerAttributes>
       <AccessLog>
-        <Enabled>{{ attributes.access_log.enabled }}</Enabled>
+        <Enabled>{{ attributes.access_log.enabled|string|lower }}</Enabled>
         {% if attributes.access_log.enabled %}
         <S3BucketName>{{ attributes.access_log.s3_bucket_name }}</S3BucketName>
         <S3BucketPrefix>{{ attributes.access_log.s3_bucket_prefix }}</S3BucketPrefix>
@@ -578,15 +577,20 @@ DESCRIBE_ATTRIBUTES_TEMPLATE = """<DescribeLoadBalancerAttributesResponse  xmlns
         <IdleTimeout>{{ attributes.connecting_settings.idle_timeout }}</IdleTimeout>
       </ConnectionSettings>
       <CrossZoneLoadBalancing>
-        <Enabled>{{ attributes.cross_zone_load_balancing.enabled }}</Enabled>
+        <Enabled>{{ attributes.cross_zone_load_balancing.enabled|string|lower }}</Enabled>
       </CrossZoneLoadBalancing>
       <ConnectionDraining>
-        <Enabled>{{ attributes.connection_draining.enabled }}</Enabled>
+        <Enabled>{{ attributes.connection_draining.enabled|string|lower }}</Enabled>
         {% if attributes.connection_draining.enabled %}
         <Timeout>{{ attributes.connection_draining.timeout }}</Timeout>
         {% endif %}
       </ConnectionDraining>
     </LoadBalancerAttributes>
+"""
+
+DESCRIBE_ATTRIBUTES_TEMPLATE = """<DescribeLoadBalancerAttributesResponse  xmlns="http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/">
+  <DescribeLoadBalancerAttributesResult>
+    """ + _LOAD_BALANCER_ATTRIBUTES + """
   </DescribeLoadBalancerAttributesResult>
   <ResponseMetadata>
     <RequestId>83c88b9d-12b7-11e3-8b82-87b12EXAMPLE</RequestId>
@@ -597,28 +601,7 @@ DESCRIBE_ATTRIBUTES_TEMPLATE = """<DescribeLoadBalancerAttributesResponse  xmlns
 MODIFY_ATTRIBUTES_TEMPLATE = """<ModifyLoadBalancerAttributesResponse xmlns="http://elasticloadbalancing.amazonaws.com/doc/2012-06-01/">
   <ModifyLoadBalancerAttributesResult>
   <LoadBalancerName>my-loadbalancer</LoadBalancerName>
-    <LoadBalancerAttributes>
-      <AccessLog>
-        <Enabled>{{ attributes.access_log.enabled }}</Enabled>
-        {% if attributes.access_log.enabled %}
-        <S3BucketName>{{ attributes.access_log.s3_bucket_name }}</S3BucketName>
-        <S3BucketPrefix>{{ attributes.access_log.s3_bucket_prefix }}</S3BucketPrefix>
-        <EmitInterval>{{ attributes.access_log.emit_interval }}</EmitInterval>
-        {% endif %}
-      </AccessLog>
-      <ConnectionSettings>
-        <IdleTimeout>{{ attributes.connecting_settings.idle_timeout }}</IdleTimeout>
-      </ConnectionSettings>
-      <CrossZoneLoadBalancing>
-        <Enabled>{{ attributes.cross_zone_load_balancing.enabled }}</Enabled>
-      </CrossZoneLoadBalancing>
-      <ConnectionDraining>
-        <Enabled>{{ attributes.connection_draining.enabled }}</Enabled>
-        {% if attributes.connection_draining.enabled %}
-        <Timeout>{{ attributes.connection_draining.timeout }}</Timeout>
-        {% endif %}
-      </ConnectionDraining>
-    </LoadBalancerAttributes>
+    """ + _LOAD_BALANCER_ATTRIBUTES + """
   </ModifyLoadBalancerAttributesResult>
   <ResponseMetadata>
     <RequestId>83c88b9d-12b7-11e3-8b82-87b12EXAMPLE</RequestId>
