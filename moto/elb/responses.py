@@ -124,16 +124,17 @@ class ELBResponse(BaseResponse):
     def modify_load_balancer_attributes(self):
         load_balancer_name = self._get_param('LoadBalancerName')
         load_balancer = self.elb_backend.get_load_balancer(load_balancer_name)
+        attributes = load_balancer.attributes
 
         cross_zone = self._get_dict_param("LoadBalancerAttributes.CrossZoneLoadBalancing.")
         if cross_zone:
-            attribute = CrossZoneLoadBalancingAttribute()
+            attribute = attributes.cross_zone_load_balancing
             attribute.enabled = cross_zone["enabled"]
             self.elb_backend.set_cross_zone_load_balancing_attribute(load_balancer_name, attribute)
 
         access_log = self._get_dict_param("LoadBalancerAttributes.AccessLog.")
         if access_log:
-            attribute = AccessLogAttribute()
+            attribute = attributes.access_log
             attribute.enabled = access_log["enabled"]
             if str(attribute.enabled).lower() == "true":
                 attribute.s3_bucket_name = access_log['s3_bucket_name']
@@ -143,7 +144,7 @@ class ELBResponse(BaseResponse):
 
         connection_draining = self._get_dict_param("LoadBalancerAttributes.ConnectionDraining.")
         if connection_draining:
-            attribute = ConnectionDrainingAttribute()
+            attribute = attributes.connection_draining
             attribute.enabled = connection_draining["enabled"]
             if str(attribute.enabled).lower() == "true":
                 attribute.timeout = int(connection_draining["timeout"])
@@ -151,7 +152,7 @@ class ELBResponse(BaseResponse):
 
         connection_settings = self._get_dict_param("LoadBalancerAttributes.ConnectionSettings.")
         if connection_settings:
-            attribute = ConnectionSettingAttribute()
+            attribute = attributes.connecting_settings
             attribute.idle_timeout = int(connection_settings["idle_timeout"])
             self.elb_backend.set_connection_settings_attribute(load_balancer_name, attribute)
 
