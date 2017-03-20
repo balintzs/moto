@@ -12,7 +12,7 @@ install_requires = [
     "werkzeug",
     "pytz",
     "python-dateutil",
-    "sure",
+    "sure==1.4.1",
     "freezegun"
 ]
 
